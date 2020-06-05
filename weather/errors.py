@@ -1,0 +1,2 @@
+class WeatherDataError(Exception):
+    pass

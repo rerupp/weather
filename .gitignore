@@ -1,0 +1,24 @@
+.idea/**
+venv/**
+weather.yaml
+weather_data/**
+__pycache__/**
+*.py[cod]
+weather/__pycache__/
+*.json
+*.csv
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info
+.installed.cfg
+*.egg
