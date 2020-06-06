@@ -942,8 +942,13 @@ class SettingsDialog(WeatherDialog):
 
     @staticmethod
     def set_setting_if_changed(section: SettingName, key: SettingName, value: SettingValue, case_fold: bool = False):
-        old_value = get_bool_setting(section, key) if isinstance(value, bool) else get_setting(section, key)
-        if value != old_value.casefold() if case_fold else old_value:
+        if isinstance(value, bool):
+            old_value = get_bool_setting(section, key)
+        else:
+            old_value = get_setting(section, key)
+            if case_fold and isinstance(old_value, str):
+                old_value = old_value.casefold()
+        if value != old_value:
             set_setting(section, key, value)
 
     def body(self, master):
