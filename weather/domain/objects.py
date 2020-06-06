@@ -1,4 +1,3 @@
-import logging
 import sys
 from calendar import monthrange
 from contextlib import contextmanager
@@ -11,15 +10,16 @@ from io import TextIOWrapper
 from pathlib import Path
 from re import compile as re_compile, IGNORECASE
 from typing import Callable, Generator, IO, List, NamedTuple, Union
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 import requests
-from requests.compat import urljoin
 
-from weather.configuration import get_setting
+from weather.configuration import get_setting, get_logger
 
 # bring the data package into scope
 from weather.domain import data
+
+log = get_logger(__name__)
 
 DataPath = Union[str, Path]
 DictionaryWriter = Callable[[dict], None]
@@ -286,14 +286,14 @@ class WeatherProviderAPI:
             return mk_error("You've made too many API requests to Dark Sky today...")
 
         url = urljoin(self.url, "{},{},{}".format(location.latitude, location.longitude, when.isoformat()))
-        logging.debug("url: %s", url)
+        log.debug("url: %s", url)
         try:
             response = requests.get(url, urlencode({"exclude": "currently,flags"}))
             if response.ok:
                 api_calls = response.headers.get(self.API_REQUESTS_MADE_TODAY_HEADER.lower())
-                logging.debug("api calls: %s", api_calls)
+                log.debug("api calls: %s", api_calls)
                 if not api_calls:
-                    print("Yikes... Didn't find {} header!!!".format(self.API_REQUESTS_MADE_TODAY_HEADER))
+                    log.error("Yikes... Didn't find {} header!!!".format(self.API_REQUESTS_MADE_TODAY_HEADER))
                     self._api_calls_made = self.API_USAGE_LIMIT + 1
                 else:
                     self._api_calls_made = int(api_calls)
