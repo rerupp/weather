@@ -1,7 +1,6 @@
 from datetime import datetime, date
-from decimal import Decimal
 from enum import Enum
-from typing import Dict, Callable, TypeVar, Generic, Sequence, Any
+from typing import Dict, Callable, TypeVar, Generic, Sequence, Any, List
 
 
 class HourlyWeatherContent(Enum):
@@ -12,6 +11,10 @@ class HourlyWeatherContent(Enum):
     WIND_GUST = "windGust"
     WIND_BEARING = "windBearing"
     CLOUD_COVER = "cloudCover"
+    UV_INDEX = "uvIndex"
+    SUMMARY = "summary"
+    HUMIDITY = "humidity"
+    DEW_POINT = "dewPoint"
 
 
 class DailyWeatherContent(Enum):
@@ -29,6 +32,14 @@ class DailyWeatherContent(Enum):
     WIND_GUST_TIME = "windGustTime"
     WIND_BEARING = "windBearing"
     CLOUD_COVER = "cloudCover"
+    UV_INDEX = "uvIndex"
+    UV_INDEX_TIME = "uvIndexTime"
+    SUMMARY = "summary"
+    HUMIDITY = "humidity"
+    DEW_POINT = "dewPoint"
+    SUNRISE_TIME = "sunriseTime"
+    SUNSET_TIME = "sunsetTime"
+    MOON_PHASE = "moonPhase"
 
 
 class DataConverter:
@@ -53,17 +64,17 @@ class DataConverter:
 
     @staticmethod
     def convert_timestamp(data: any, tz: datetime.tzinfo, fmt: str) -> str:
-        if data:
+        if data is not None:
             return DataConverter.to_binary_datetime(data, tz).strftime(fmt)
 
     @staticmethod
     def to_binary_date(data: any, tz: datetime.tzinfo) -> date:
-        if data:
+        if data is not None:
             return DataConverter.to_binary_datetime(data, tz).date()
 
     @staticmethod
     def to_binary_datetime(data: any, tz: datetime.tzinfo) -> datetime:
-        if data:
+        if data is not None:
             ts = data if isinstance(data, int) else int(data)
             return datetime.fromtimestamp(ts, tz=tz)
 
@@ -74,19 +85,25 @@ class DataConverter:
 
     @staticmethod
     def wind_bearing(data: any) -> str:
-        if data:
+        if data is not None:
+            data = DataConverter.to_binary_float(data)
             direction_index = int((data / 22.5) + .5)
             return DataConverter._compass_bearing[direction_index % 16]
 
     @staticmethod
     def to_fahrenheit(data: any) -> str:
-        if data:
-            return "{:.1f}".format(Decimal(data))
+        return DataConverter.to_float(data, precision=1)
 
     @staticmethod
-    def to_float(data: Any) -> float:
-        if data:
-            return float(data)
+    def to_binary_float(data: Any) -> float:
+        if data is not None:
+            return data if isinstance(data, float) else float(data)
+
+    @staticmethod
+    def to_float(data: Any, precision: int = 2) -> str:
+        if data is not None:
+            data = DataConverter.to_binary_float(data)
+            return "{:.{precision}f}".format(data, precision=precision)
 
 
 ConvertType = TypeVar("ConvertType", str, Enum)
@@ -95,7 +112,21 @@ ConvertType = TypeVar("ConvertType", str, Enum)
 class GenericDataConverter(Generic[ConvertType]):
 
     def __init__(self, translators: Dict[ConvertType, Callable[[Any], Any]]):
-        self._translators = translators
+        self._translators: Dict[str, Callable[[Any], Any]] = {}
+        self._keys: List[ConvertType] = []
+        for key, translator in translators.items():
+            self._keys.append(key)
+            self._translators[self.to_field_name(key)] = translator
+
+    @staticmethod
+    def to_field_name(key: ConvertType) -> str:
+        return key.value if isinstance(key, Enum) else key
+
+    def keys(self) -> List[ConvertType]:
+        return self._keys.copy()
+
+    def field_names(self) -> List[str]:
+        return [self.to_field_name(key) for key in self._keys]
 
     def convert_contents(self,
                          data_dict: Dict[str, Any],
@@ -103,11 +134,12 @@ class GenericDataConverter(Generic[ConvertType]):
         translators = self._translators
         results: Dict[ConvertType, Any] = {}
         for field in content_selection:
-            data = data_dict.get(field.value if isinstance(field, Enum) else field)
-            if data:
-                convert_data = translators.get(field)
+            field_name = self.to_field_name(field)
+            data = data_dict.get(field_name)
+            if data is not None:
+                convert_data = translators.get(field_name)
                 if not convert_data:
-                    raise ValueError("Converts action for '{}' not found...".format(field))
+                    raise ValueError("Convert action for '{}' not found...".format(field))
                 data = convert_data(data)
             # always add the field regardless if there's data
             results[field] = data

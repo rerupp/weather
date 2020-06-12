@@ -360,8 +360,8 @@ class WeatherDomain:
             tz = pytz.timezone(location.tz)
             data_converters = {
                 DailyWeatherContent.TIME: lambda v: DataConverter.to_binary_date(v, tz),
-                DailyWeatherContent.TEMPERATURE_HIGH: lambda v: DataConverter.to_float(v),
-                DailyWeatherContent.TEMPERATURE_LOW: lambda v: DataConverter.to_float(v)
+                DailyWeatherContent.TEMPERATURE_HIGH: lambda v: DataConverter.to_binary_float(v),
+                DailyWeatherContent.TEMPERATURE_LOW: lambda v: DataConverter.to_binary_float(v)
             }
 
             location_start_month, location_end_month = start_end_months(location_month_slots)
@@ -413,7 +413,7 @@ class WeatherDomain:
         try:
             for history in self._weather_data.get_history(location, history_dates):
                 progress.step()
-                yield data_converter.convert_contents(history[0], selected_content)
+                yield data_converter.convert_contents(history, selected_content)
         finally:
             progress.end()
 

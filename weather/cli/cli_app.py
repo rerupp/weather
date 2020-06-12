@@ -5,6 +5,7 @@ from typing import Dict
 
 from .commands import (
     CommandExec,
+    ListPropertiesCMD,
     AddLocationCMD, ListLocationsCMD,
     AddWeatherHistoryCMD, ListWeatherCMD, ReportWeatherHistoryCMD,
     RemoveWeatherDataCMD
@@ -26,6 +27,7 @@ class WeatherCLI:
         self._dispatcher: Dict[str, CommandExec] = dict()
         cmd_parser = self._parser.add_subparsers(dest='cmd')
         commands = [ListLocationsCMD("ll"),
+                    ListPropertiesCMD("ls"),
                     AddLocationCMD("al"),
                     ListWeatherCMD("lh"),
                     AddWeatherHistoryCMD("ah"),

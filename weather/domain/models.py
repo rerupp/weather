@@ -19,12 +19,14 @@ DataSourceWriter = Callable[[DataPath, DataContent], None]
 HistoryProperties = List[Tuple[str, dict]]
 
 
+class WeatherHistoryProperties(NamedTuple):
+    entries: int
+    entries_size: int
+    compressed_size: int
+    size: int
+
+
 class ArchiveDataSource:
-    class Properties(NamedTuple):
-        entries: int
-        entries_size: int
-        compressed_size: int
-        size: int
 
     def __init__(self, archive_path: Path):
         self._backup_glob = None
@@ -70,7 +72,7 @@ class ArchiveDataSource:
             for name in zipfile.namelist():
                 yield name
 
-    def properties(self) -> 'ArchiveDataSource.Properties':
+    def properties(self) -> WeatherHistoryProperties:
         entries = 0
         entries_size = 0
         compressed_size = 0
@@ -79,12 +81,12 @@ class ArchiveDataSource:
                 entries += 1
                 entries_size += zip_info.file_size
                 compressed_size += zip_info.compress_size
-        return ArchiveDataSource.Properties._make([
+        return WeatherHistoryProperties(
             entries,
             entries_size,
             compressed_size,
             Path(self._archive_path).stat().st_size
-        ])
+        )
 
     @contextmanager
     def reader(self) -> DataSourceReader:
@@ -347,7 +349,7 @@ class WeatherHistory:
                 ending_date = date.max if date.min == starting_date else (starting_date + timedelta(days=1))
             return [history_date for history_date in self._dates if starting_date <= history_date <= ending_date]
 
-    def get_properties(self) -> ArchiveDataSource.Properties:
+    def get_properties(self) -> WeatherHistoryProperties:
         return self._archive_ds.properties()
 
     def reader(self) -> DataSourceReader:
@@ -425,6 +427,9 @@ class WeatherData:
     # history API
 
     def add_history(self, location: Location, history_dates: List[date], add_callback: Callable[[date], None]):
+        if not history_dates:
+            log.warning("There are no history dates to add.")
+            return
         self._get_weather_history(location, must_exist=False).add(history_dates, add_callback)
         del self._weather_histories[location]
 
@@ -442,11 +447,14 @@ class WeatherData:
                 return weather_history.dates(ending_date=ending)
             return weather_history.dates()
 
-    def history_properties(self) -> List[Tuple[Location, ArchiveDataSource.Properties]]:
+    def history_properties(self) -> List[Tuple[Location, WeatherHistoryProperties]]:
         history_properties = []
         for location in self._locations:
             weather_history = self._get_weather_history(location)
-            properties = (location, weather_history.get_properties()) if weather_history else (location, None)
+            if weather_history:
+                properties = (location, weather_history.get_properties())
+            else:
+                properties = (location, WeatherHistoryProperties(0, 0, 0, 0))
             history_properties.append(properties)
         return history_properties
 
@@ -472,7 +480,7 @@ class WeatherData:
     def get_history(self,
                     location: Location,
                     history_dates: List[date],
-                    hourly_history=False) -> Generator[Union[dict, List[dict]], None, None]:
+                    hourly_history=False) -> Generator[List[dict], None, None]:
         weather_history = self._get_weather_history(location)
         if not weather_history:
             # return an empty generator
@@ -487,7 +495,8 @@ class WeatherData:
                     raise err.WeatherDataError("{} history does not contain an '{}' entry..."
                                                .format(location.name, node))
                 else:
-                    yield history_node.get("data")
+                    for history_data in history_node.get("data"):
+                        yield history_data
 
     def _get_history_path(self, location: Location) -> Path:
         return Path(self._dir_ds.path, location.alias.casefold()).with_suffix(".zip")
