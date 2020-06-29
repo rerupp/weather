@@ -1,10 +1,10 @@
 import argparse
 import json
-import logging as log
 from collections import OrderedDict, namedtuple
 from datetime import date, timedelta
 from decimal import Decimal, DecimalException
 from enum import Enum
+from logging import INFO
 from io import StringIO
 from pathlib import Path
 from shutil import get_terminal_size
@@ -12,11 +12,14 @@ from typing import Callable, Dict, Generator, Iterable, List, Optional, TypeVar,
 
 import pytz
 
+from weather.configuration import get_logger
 from weather.domain import (
     DateRange,
     WeatherData, CsvDictWriter, Location, CityDB, WeatherHistoryProperties,
     DailyWeatherContent, HourlyWeatherContent, DataConverter, GenericDataConverter
 )
+
+log = get_logger(__name__)
 
 
 def get_locations(weather_data: WeatherData, *location_names: str) -> List[Location]:
@@ -128,10 +131,9 @@ class ListPropertiesCMD(BaseListCMD):
 
     def execute(self, options: argparse.Namespace, weather_data: WeatherData):
 
-        history_properties = weather_data.history_properties()
+        history_properties = weather_data.all_history_properties()
         if not history_properties:
             return
-        history_properties.sort(key=lambda hp: hp[0].name)
 
         location_field_name = "location"
         property_field_names = WeatherHistoryProperties._fields
@@ -364,12 +366,16 @@ class AddWeatherHistoryCMD(BaseCMD):
 
     def add_to_parser(self, argument_parser):
         cmd = argument_parser.add_parser(self.name, help="Add a weather location.")
+        cmd.add_argument("--terse", dest="terse", action="store_true",
+                         help="Do not echo dates fetched from the server.")
         cmd.add_argument("location", help="The location where weather data is being collected.")
         cmd.add_argument("starting", help="The weather history starting date (YYYY-MM-DD).")
         cmd.add_argument("ending", nargs="?", help="The weather history ending date (default is starting date).")
 
     def execute(self, options: argparse.Namespace, weather_data: WeatherData):
 
+        if not options.terse:
+            log.setLevel(INFO)
         location = weather_data.get_location(options.location)
         if not location:
             log.error("Location '{}' was not found...".format(options.location))
@@ -405,7 +411,7 @@ class AddWeatherHistoryCMD(BaseCMD):
                         text.write("\n{}".format(history_date))
                 log.warning("History dates exists for:%s", text.getvalue())
 
-        weather_data.add_history(location, history_dates, lambda hd: log.info("getting %s", hd))
+        weather_data.add_history(location, history_dates, lambda hd: log.info(f"getting {hd}"))
 
 
 class ReportWeatherHistoryCMD(BaseCMD):

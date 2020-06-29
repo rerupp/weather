@@ -5,7 +5,10 @@ import zipfile as zf
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Tuple, Union, Generator, Callable, List, NamedTuple, Iterator, Dict
+from typing import Optional, Tuple, Union, Generator, Callable, List, Set, NamedTuple, Iterator, Dict
+
+import orjson
+
 import weather.errors as err
 from weather.configuration import get_logger
 from .objects import DataPath, DateRange, Location, WeatherProviderAPI
@@ -34,27 +37,27 @@ class ArchiveDataSource:
         self._compression = zf.ZIP_DEFLATED
         self._archive_cache: Dict[str, bytes] = {}
         self._archive_path = archive_path
+        self._archive_members: Set[str] = set()
         if not archive_path.exists():
-            print("'{}' not found, creating...".format(archive_path))
-            self._init_zipfile()
-        elif not zf.is_zipfile(archive_path):
-            raise err.WeatherDataError("Yikes... '{}' is not a ZIP file!".format(archive_path))
-
-        ts_pattern = "[1-2]" + 3 * "[0-9]"  # year: matches 1000 - 2999
-        ts_pattern += "[0-1]" + "[0-9]"  # month: matches 00-19
-        ts_pattern += "[0-3]" + "[0-9]"  # day: matches 00-39
-        ts_pattern += "[0-2]" + "[0-9]"  # hour: matches 00-29
-        ts_pattern += 2 * ("[0-6]" + "[0-9]")  # minutes/seconds matches 00-69
-        bu_name = "{}-{}{}".format(archive_path.stem, ts_pattern, archive_path.suffix)
-        self._backup_glob = str(archive_path.with_name(bu_name))
-
-    @property
-    def backup_glob(self):
-        return self._backup_glob
-
-    @property
-    def backup_retention(self):
-        return max(self._backup_retention, 0)
+            log.warning(f'{archive_path} not found, creating...')
+            # opening the archive will create it if it doesn't already exist
+            try:
+                with self._get_writable_zipfile():
+                    pass
+            except Exception as exc:
+                raise err.WeatherDataError(f'Yikes... Error opening "{str(Path)}": {str(exc)}')
+        else:
+            try:
+                with self._get_readable_zipfile() as zipfile:
+                    for name in zipfile.namelist():
+                        # verify there are no duplicate histories in the archive
+                        if name in self._archive_members:
+                            raise err.WeatherDataError(f'Yikes... Found duplicate weather history: {name}')
+                        self._archive_members.add(name)
+            except err.WeatherDataError:
+                pass
+            except Exception as exc:
+                raise err.WeatherDataError(f'Yikes... Error reading archive name list: {str(exc)}')
 
     @property
     def compression(self):
@@ -93,8 +96,6 @@ class ArchiveDataSource:
         with self._get_readable_zipfile() as zipfile:
             def read_function(data_path: DataPath) -> DataContent:
                 data_path = str(data_path) if isinstance(data_path, Path) else data_path
-                if not self.data_path_exists(data_path):
-                    raise err.WeatherDataError("Archive entry '{}' was not found...".format(data_path))
                 data_contents = self._archive_cache.get(data_path)
                 if not data_contents:
                     with zipfile.open(data_path) as fp:
@@ -116,15 +117,13 @@ class ArchiveDataSource:
             try:
                 def write_function(data_path: DataPath, content: DataContent):
                     data_path = str(data_path) if isinstance(data_path, Path) else data_path
-                    # There is an open issue with Path (Issue 40564) that seems to be related
-                    # when using Path against an open archive. I'll try to track the issue and put
-                    # this back in once it is resolved and see if it fixes the problem.
-                    # zip_path = zf.Path(new_zipfile, data_path)
-                    # if zip_path.exists():
-                    #     raise err.WeatherDataError("'{}' has already been added by the writer...".format(data_path))
+                    if data_path in self._archive_members:
+                        raise err.WeatherDataError("'{}' already exists...".format(data_path))
                     zip_info = zf.ZipInfo(data_path, datetime.today().timetuple()[:-3])
                     zip_info.compress_type = zf.ZIP_DEFLATED
                     writable_zipfile.writestr(zip_info, content)
+                    self._archive_members.add(data_path)
+
                 yield write_function
             except Exception as error:
                 exception = err.WeatherDataError("Yikes!!! Error adding entry: {}".format(error))
@@ -136,11 +135,6 @@ class ArchiveDataSource:
                 if backup_archive.exists():
                     self._archive_path.unlink()
                     backup_archive.rename(self._archive_path)
-
-    def _init_zipfile(self):
-        # opening the archive will create it if it doesn't already exist
-        with self._get_writable_zipfile():
-            pass
 
     def _get_zipfile(self, path: Path, mode: str) -> zf.ZipFile:
         return zf.ZipFile(path, mode=mode, compression=self.compression)
@@ -374,12 +368,12 @@ class WeatherHistory:
 class WeatherData:
     WEATHER_DATA_DIR = "weather_data"
 
-    def __init__(self, weather_data: DataPath = WEATHER_DATA_DIR, locations_path: DataPath = "locations.json"):
+    def __init__(self, data_dir: DataPath = WEATHER_DATA_DIR, locations_path: DataPath = "locations.json"):
         self._weather_histories: Dict[Location, WeatherHistory] = dict()
-        weather_data = weather_data if isinstance(weather_data, Path) else Path(weather_data)
+        data_dir = data_dir if isinstance(data_dir, Path) else Path(data_dir)
         locations_path = locations_path if isinstance(locations_path, Path) else Path(locations_path)
-        log.debug("initializing weather data from {}".format(weather_data.joinpath(locations_path)))
-        self._dir_ds = DirectoryDataSource(weather_data)
+        log.debug("initializing weather data from {}".format(data_dir.joinpath(locations_path)))
+        self._dir_ds = DirectoryDataSource(data_dir)
         self._locations = Locations(self._dir_ds, locations_path)
 
     def data_path(self) -> Path:
@@ -391,6 +385,15 @@ class WeatherData:
         for weather_history in weather_histories.values():
             weather_history.clear_cache()
         weather_histories.clear()
+
+    def preload_data(self):
+        """The REST services uses this method to cheat multi-thread access to data."""
+        for location in self._locations:
+            weather_history = self._get_weather_history(location)
+            if weather_history:
+                with weather_history.reader() as history_reader:
+                    for history_date in weather_history.dates():
+                        history_reader(weather_history.make_pathname(history_date))
 
     # locations API
 
@@ -447,16 +450,14 @@ class WeatherData:
                 return weather_history.dates(ending_date=ending)
             return weather_history.dates()
 
-    def history_properties(self) -> List[Tuple[Location, WeatherHistoryProperties]]:
-        history_properties = []
-        for location in self._locations:
-            weather_history = self._get_weather_history(location)
-            if weather_history:
-                properties = (location, weather_history.get_properties())
-            else:
-                properties = (location, WeatherHistoryProperties(0, 0, 0, 0))
-            history_properties.append(properties)
-        return history_properties
+    def all_history_properties(self) -> List[Tuple[Location, WeatherHistoryProperties]]:
+        locations = [location for location in self.locations()]
+        locations.sort(key=lambda l: l.name)
+        return [(location, self.history_properties(location)) for location in locations]
+
+    def history_properties(self, location: Location) -> WeatherHistoryProperties:
+        weather_history = self._get_weather_history(location)
+        return weather_history.get_properties() if weather_history else WeatherHistoryProperties(0, 0, 0, 0)
 
     def history_date_ranges(self, location: Location) -> List[DateRange]:
         history_dates = self.history_dates(location)
@@ -480,7 +481,7 @@ class WeatherData:
     def get_history(self,
                     location: Location,
                     history_dates: List[date],
-                    hourly_history=False) -> Generator[List[dict], None, None]:
+                    hourly_history=False) -> Generator[dict, None, None]:
         weather_history = self._get_weather_history(location)
         if not weather_history:
             # return an empty generator
@@ -488,7 +489,8 @@ class WeatherData:
         history_path_builder = self.history_path_builder(location)
         with weather_history.reader() as history_reader:
             for history_path in (history_path_builder(history_date) for history_date in history_dates):
-                history = json.loads(history_reader(history_path))
+                # history = json.loads(history_reader(history_path))
+                history = orjson.loads(history_reader(history_path))
                 node = "hourly" if hourly_history else "daily"
                 history_node = history.get(node)
                 if not history_node:

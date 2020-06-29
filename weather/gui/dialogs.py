@@ -419,7 +419,7 @@ class FindCityDialog(WeatherDialog):
         self._matching_cities: Optional[List[CityDB.Record]] = None
         self._city_selection: int = -1
         self._city_selector: Optional[Listbox] = None
-        self._city_db = Optional[city_db] = None
+        self._city_db = city_db
 
         # add the search fields
         self._city_name = StringVar()

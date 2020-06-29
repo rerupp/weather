@@ -23,8 +23,8 @@ the result.
 
 The `setuptools` package was a pleasant surprise. I have not tried to
 bundle a package but I do use it to get dependencies, create the cli
-runner, and gui runner. It works well and support both invocation from the
-command line and PyCharm.
+runner, gui runner and REST services runner. It works well and support both
+invocation from the command line and PyCharm.
 
 Once the repository has been cloned issue the following commands depending
 on the OS you are running:
@@ -35,19 +35,21 @@ python -m venv venv
 source venv/bin/activate
 pip install --editable .
 ```
-Once the commands successfully complete the `venv/bin` directory will
-contain a `cli` and `gui` script that run the CLI and GUI respectively 
+Once the commands successfully complete the `venv` directory will
+contain a `cli`, `gui` and `server` script that will run the CLI, GUI
+and REST services respectively. 
 ##### Windows 10.
 ```shell script
 python -m venv venv
 venv\Scripts\activate
 pip install --editable .
 ```
-Once the command successfully complete the `venv\Scripts` directory will
+Once the command successfully complete the 'venv' Scripts directory will
 contain a `cli.exe` and `gui.exe` the CLI and GUI respectively.
      
-### Dependencies
-Here are the package dependencies and the version being used.
+#### Dependencies
+Here are the package dependencies installed via `setup.py` and the versions
+being used.
 
 |Package|Version|
 |---|---|
@@ -56,6 +58,14 @@ Here are the package dependencies and the version being used.
 |requests|2.23.0|
 |tkcalendar|1.6.1|
 |tksheet|4.6.1 (Windows) 4.8.2 (Linux)|
+|Click|7.1.2|
+|fastapi|0.58.0|
+|pydantic|1.5.1|
+|PyJWT|1.7.1|
+|uvicorn|0.11.5|
+|python-nultipart|0.0.5|
+|passlib|1.7.2|
+|orjson|3.1.1|
 
 ### Running/Debugging from PyCharm
 Once I moved to `setuptools` and removed the previous runners I had to
@@ -108,6 +118,7 @@ The `weather` directory contains all of the weather data packages.
 * `weather.configuration` contains settings and configuration data.
 * `weather.domain` contains the weather data domain model and objects.
 * `weather.gui` contains the GUI client.
+* `weather.server` contains the REST api and server.
 
 ### The `cli` Package
 The CLI client is built on top of Python `argparse`. Similar to tools like
@@ -159,6 +170,56 @@ coding on my wife's laptop over this past winter and did not want to install
 a collection of other software libraries. I felt bad enough putting
 Python 3 and PyCharm on her laptop.
 
+### The `server` Package
+While I was playing with the `Raspberry Pi` there was this idea in the back of
+my mind about building out a greenhouse controller and being able to monitor
+and control it from my phone, tablet, or notebook. The controller would be
+connected to my home network and I would have a REST API to access it. What
+a pleasant surprise to come across `FastAPI`.
+
+Going through the `FastAPI` tutorial it seemed pretty straight forward to add a
+read-only REST frontend to the weather data domain. I also wanted to give the
+`OAuth2` integration a try. I've created several implementations of security
+with `Spring` and I was curious to see how they compared.
+
+I was pleasantly surprised by the `FastAPI` framework. While not as rich as
+`Spring` it certainly is _much_ easier to use. The integration with `pydantic`
+and `OpenApi` (formerly Swagger) made it really easy to bring up the frontend
+and test without building out a client. The framework support for `OAuth2` made
+it really easy (and fast development wise) to implement authentication and
+permissions. *Soooo* much easier than `Spring Security`. 
+
+Here are the service highlights:
+
+* There are two (2) categories of services.
+    * User services. All users can access information about their own account
+     however the other services are gated by a _user:read_ permission.
+    * Weather data services are gated by a _weather_data:read_ permission.
+* Authentication is managed by the server. There are 3 users defined out of the
+box and the password is the same as the username.
+    * The **admin** user is allowed _user:read_ and _weather_data:read_
+     permission.
+    * The **user** user is allowed _weather_data:read_ permission.
+    * The **guest** user is allowed _weather_data:read_ permissions however the
+    user is disabled and will not be able to authorize.
+* Permissions are granted to a user using `OAuth2` scopes, sent in as part
+of the authentication process. The authentication token returned by the services
+will be valid for 5 minutes.
+* The `OpenApi` integration is on by default and can be accessed by going to
+the `/docs` endpoint once the server is running.
+* The `server` script starts the REST services and has command line options to
+select the hostname and port to use. A side note on the script implementation.
+I came across `click`, decided to give it a try, and came away liking the
+framework. The declarative approach is a nice alternative compared to
+`argparse`.
+
+I originally was thinking about using `SQLAlchemy` combined with `SQLite` but...
+I'm not really a big fan of ORM (Object Relational Mapper) tools especially
+having fought `Hibernate` over the years. I much prefer document based data
+stores and `SQLite` has less than spectacular write speeds. I have the code
+stashed away and will probably include it in another push but right now
+preloading the 10k+ histories takes around 1.5 seconds so really why care...
+ 
 ### Where are the unit tests?
 There aren't any actually. I started out with building them out but the
 architecture was moving so quickly it became a pita to maintain them. There

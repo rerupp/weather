@@ -10,11 +10,19 @@ setup(
         'tksheet',
         'tkcalendar',
         'requests',
-        'pyYAML'
+        'pyYAML',
+        'fastapi',
+        'pydantic',
+        'uvicorn',
+        'python-multipart',
+        'pyjwt',
+        'passlib[bcrypt]',
+        'orjson'
     ],
     entry_points='''
         [console_scripts]
         gui=weather.gui:run_gui
         cli=weather.cli:run_cli
+        server=weather.server:run_server
     ''',
 )

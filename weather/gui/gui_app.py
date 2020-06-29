@@ -205,13 +205,12 @@ class WeatherDomain:
     def weather_data_properties(self):
         if not self._weather_data:
             return
-        history_properties = self._weather_data.history_properties()
+        history_properties = self._weather_data.all_history_properties()
         if not history_properties:
             messagebox.showinfo(title="Weather Data properties", message="Weather Data is empty...")
         else:
             make_content = WeatherDataPropertiesDialog.Property.make
             contents: List[WeatherDataPropertiesDialog.Property] = []
-            history_properties.sort(key=lambda p: p[0].name)
             for location_properties in history_properties:
                 location, properties = location_properties
                 if not properties:

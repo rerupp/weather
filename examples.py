@@ -83,7 +83,8 @@
 # # group.add_argument("-d", "--delete", dest="delete", default=False, action="store_true", help="Delete something.")
 # sub_parsers = parser.add_subparsers(dest='parser')
 # sub_parser = sub_parsers.add_parser("list", help="List something")
-# sub_parser.add_argument("type", choices=['text', 'csv', 'json'], default='text', nargs='?', help="The listing type (default text)")
+# sub_parser.add_argument("type", choices=['text', 'csv', 'json'], default='text', nargs='?',
+#                         help="The listing type (default text)")
 # sub_parser = sub_parsers.add_parser("add", help="Add something")
 # sub_parser.add_argument("name", help="the name") # , nargs=1)
 # sub_parser.add_argument("known_as", help="known as") # , nargs=1)
@@ -576,33 +577,117 @@
 ###############################################################################
 # logging settings
 ###############################################################################
-from logging import Logger, WARNING, INFO, DEBUG
-from weather.configuration import get_logger, set_setting, set_module_logging_levels
-module_names = [
-    "weather.gui.gui_module_1",
-    "weather.gui.gui_module_2",
-    "weather.domain.domain_module",
-    "weather.cli"
-]
-set_setting("gui", "logging_level", "info")
-set_setting("domain", "logging_level", "debug")
-set_setting("cli", "logging_level", "info")
-loggers = [get_logger(name) for name in module_names]
-assert loggers[0].isEnabledFor(INFO)
-assert loggers[1].isEnabledFor(INFO)
-assert loggers[2].isEnabledFor(DEBUG)
-assert loggers[3].isEnabledFor(INFO)
+# from logging import WARNING, INFO, DEBUG
+# from weather.configuration import get_logger, set_setting, set_module_logging_levels
+# module_names = [
+#     "weather.gui.gui_module_1",
+#     "weather.gui.gui_module_2",
+#     "weather.domain.domain_module",
+#     "weather.cli"
+# ]
+# set_setting("gui", "logging_level", "info")
+# set_setting("domain", "logging_level", "debug")
+# set_setting("cli", "logging_level", "info")
+# loggers = [get_logger(name) for name in module_names]
+# assert loggers[0].isEnabledFor(INFO)
+# assert loggers[1].isEnabledFor(INFO)
+# assert loggers[2].isEnabledFor(DEBUG)
+# assert loggers[3].isEnabledFor(INFO)
+#
+# set_setting("gui", "logging_level", "warning")
+# set_setting("domain", "logging_level", "warning")
+# set_setting("cli", "logging_level", "warning")
+# set_module_logging_levels()
+# assert not loggers[0].isEnabledFor(INFO)
+# assert not loggers[1].isEnabledFor(INFO)
+# assert not loggers[2].isEnabledFor(DEBUG)
+# assert not loggers[2].isEnabledFor(INFO)
+# assert not loggers[3].isEnabledFor(INFO)
+# assert loggers[0].isEnabledFor(WARNING)
+# assert loggers[1].isEnabledFor(WARNING)
+# assert loggers[2].isEnabledFor(WARNING)
+# assert loggers[3].isEnabledFor(WARNING)
+from concurrent.futures import as_completed, ThreadPoolExecutor
+from typing import List, Tuple
+import orjson
+from weather import StopWatch
+from weather.domain import Location, WeatherData, WeatherHistory
 
-set_setting("gui", "logging_level", "warning")
-set_setting("domain", "logging_level", "warning")
-set_setting("cli", "logging_level", "warning")
-set_module_logging_levels()
-assert not loggers[0].isEnabledFor(INFO)
-assert not loggers[1].isEnabledFor(INFO)
-assert not loggers[2].isEnabledFor(DEBUG)
-assert not loggers[2].isEnabledFor(INFO)
-assert not loggers[3].isEnabledFor(INFO)
-assert loggers[0].isEnabledFor(WARNING)
-assert loggers[1].isEnabledFor(WARNING)
-assert loggers[2].isEnabledFor(WARNING)
-assert loggers[3].isEnabledFor(WARNING)
+
+class HistoryPerformance:
+
+    def __init__(self):
+        self.weather_data = WeatherData()
+
+    def run(self, single_threaded, skip_load):
+        load_control_blocks: List[Tuple[Location, WeatherHistory]] = []
+        for location in self.weather_data.locations():
+            # noinspection PyProtectedMember
+            weather_history = self.weather_data._get_weather_history(location)
+            load_control_blocks.append((location, weather_history))
+
+        for p in range(2):
+            print("{} pass {}threaded {}loading json".format(
+                "2nd" if p else "1st",
+                "single " if single_threaded else "multi-",
+                "skip " if skip_load else ""
+            ))
+            read_stats: List[Tuple[Location, Tuple]] = []
+            overall_stop_watch = StopWatch()
+            if single_threaded:
+                for location, weather_history in load_control_blocks:
+                    read_stats.append((location, self.load_history(weather_history, skip_load)))
+            else:
+                with ThreadPoolExecutor(max_workers=20) as executor:
+                    future_to_location = {
+                        executor.submit(self.load_history, wh, skip_load): loc for loc, wh in load_control_blocks
+                    }
+                    for future in as_completed(future_to_location):
+                        location = future_to_location[future]
+                        if location:
+                            try:
+                                read_stats.append((location, future.result()))
+                            except Exception as err:
+                                print(f'"{location.name}" error: {str(err)}')
+            overall_stop_watch.stop()
+            print(f'History read took: {str(overall_stop_watch)}')
+            for location, stats in read_stats:
+                if stats:
+                    stop_watch, histories = stats
+                    loads_per_second = histories / stop_watch.elapsed() if stop_watch.elapsed() else float(histories)
+                    print('"{}":(elapsed={},histories={},loads/sec={:,.1f})'.format(
+                        location.name, stop_watch, histories, loads_per_second
+                    ))
+
+    @staticmethod
+    def load_history(weather_history: WeatherHistory, skip_load: bool):
+        if not weather_history:
+            return
+
+        history_count = 0
+        stop_watch = StopWatch()
+        with weather_history.reader() as history_reader:
+            for history_date in weather_history.dates():
+                history_count += 1
+
+                data = history_reader(weather_history.make_pathname(history_date))
+                if skip_load:
+                    continue
+                # full_history = json.loads(data)
+                full_history = orjson.loads(data)
+                # full_history = ujson.loads(data)
+
+                hourly_history = full_history.get("hourly")
+                assert hourly_history, "Did not find 'hourly' in weather history"
+
+                daily_history = full_history.get("daily")
+                assert daily_history, "Did not find 'daily' in weather history"
+        stop_watch.stop()
+        return stop_watch, history_count
+
+
+if __name__ == "__main__":
+    HistoryPerformance().run(single_threaded=True, skip_load=True)
+    HistoryPerformance().run(single_threaded=True, skip_load=False)
+    HistoryPerformance().run(single_threaded=False, skip_load=True)
+    HistoryPerformance().run(single_threaded=False, skip_load=False)
