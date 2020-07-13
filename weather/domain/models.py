@@ -11,7 +11,7 @@ import orjson
 
 import weather.errors as err
 from weather.configuration import get_logger
-from .objects import DataPath, DateRange, Location, WeatherProviderAPI
+from .objects import DataPath, DateRange, FullHistory, Location, WeatherProviderAPI
 
 log = get_logger(__name__)
 
@@ -478,27 +478,35 @@ class WeatherData:
         if self.history_exists(location):
             return self._get_weather_history(location).make_pathname
 
-    def get_history(self,
-                    location: Location,
-                    history_dates: List[date],
-                    hourly_history=False) -> Generator[dict, None, None]:
+    def get_history(self, location: Location, dates: List[date], hourly_history=False) -> Generator[dict, None, None]:
+        for full_history in self.get_full_history(location, dates):
+            if not hourly_history:
+                yield full_history.daily
+            else:
+                for hourly_history in full_history.hourly:
+                    yield hourly_history
+
+    def get_full_history(self, location: Location, dates: List[date]) -> Generator[FullHistory, None, None]:
         weather_history = self._get_weather_history(location)
         if not weather_history:
-            # return an empty generator
             return
         history_path_builder = self.history_path_builder(location)
-        with weather_history.reader() as history_reader:
-            for history_path in (history_path_builder(history_date) for history_date in history_dates):
-                # history = json.loads(history_reader(history_path))
-                history = orjson.loads(history_reader(history_path))
-                node = "hourly" if hourly_history else "daily"
-                history_node = history.get(node)
-                if not history_node:
-                    raise err.WeatherDataError("{} history does not contain an '{}' entry..."
-                                               .format(location.name, node))
+        with weather_history.reader() as read:
+            def get_history(_node: str) -> List[dict]:
+                _history = history.get(_node)
+                if _history is None:
+                    log.warning(f'{history_path} does not have "{_node}" data...')
                 else:
-                    for history_data in history_node.get("data"):
-                        yield history_data
+                    _history = _history.get("data")
+                    if not _history:
+                        log.warning(f'{history_path} data for "{_node}" is missing...')
+                return _history if _history else [{}]
+            for history_date in dates:
+                history_path = history_path_builder(history_date)
+                history = orjson.loads(read(history_path))
+                daily_history = get_history("daily")
+                hourly_history = get_history("hourly")
+                yield FullHistory(date=history_date, daily=daily_history[0], hourly=hourly_history)
 
     def _get_history_path(self, location: Location) -> Path:
         return Path(self._dir_ds.path, location.alias.casefold()).with_suffix(".zip")

@@ -16,7 +16,7 @@ class WeatherDataUser(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     disabled: Optional[bool] = None
-    permissions: Optional[List[str]] = None
+    permissions: Optional[List[Permissions]] = None
 
 
 _weather_data_users = [
@@ -52,8 +52,6 @@ class WeatherDataUsers:
     def __init__(self):
         self.crypt_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
         self.users = [WeatherDataUser(**user) for user in _weather_data_users]
-        for user in self.users:
-            user.hashed_password = self.crypt_context.hash(user.hashed_password)
 
     def get_all(self) -> Generator[WeatherDataUser, None, None]:
         for user in self.users:
@@ -65,4 +63,12 @@ class WeatherDataUsers:
                 return user.copy(deep=True)
 
     def verify_password(self, user: WeatherDataUser, password: str) -> bool:
-        return self.crypt_context.verify(password, user.hashed_password)
+        # This is not ideal however there is a pretty big hit hashing the
+        # user password (~300 ms/user). For the server that's not a big deal
+        # however for other use cases (like in the db package) it make tool
+        # startup slow. Since the user implementation is all fake and only
+        # called by login, hash the plain text password here instead of in
+        # init or implementing a lock scheme. The plain text password could
+        # simply be checked here however I wanted to hang onto to how the
+        # CryptContext can be used.
+        return self.crypt_context.verify(password, self.crypt_context.hash(user.hashed_password))

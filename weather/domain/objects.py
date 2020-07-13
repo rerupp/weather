@@ -305,3 +305,9 @@ class WeatherProviderAPI:
                 return mk_error("HTTP {}: {}".format(response.status_code, response.reason))
         except Exception as error:
             return mk_error(str(error))
+
+
+class FullHistory(NamedTuple):
+    date: date
+    daily: dict
+    hourly: List[dict]

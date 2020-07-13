@@ -17,7 +17,7 @@ from weather.domain import WeatherData
 class WeatherCLI:
 
     def __init__(self):
-        self._parser = argparse.ArgumentParser(prog="weather_cli")
+        self._parser = argparse.ArgumentParser(prog="wcli")
         self._parser.add_argument("-D", "--debug", dest="debug", default=False, action='store_true',
                                   help="Display debug information.")
         self._parser.add_argument("-d", "--data", dest="data", metavar="DATA",

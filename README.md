@@ -35,17 +35,21 @@ python -m venv venv
 source venv/bin/activate
 pip install --editable .
 ```
-Once the commands successfully complete the `venv` directory will
-contain a `cli`, `gui` and `server` script that will run the CLI, GUI
-and REST services respectively. 
 ##### Windows 10.
 ```shell script
 python -m venv venv
 venv\Scripts\activate
 pip install --editable .
 ```
-Once the command successfully complete the 'venv' Scripts directory will
-contain a `cli.exe` and `gui.exe` the CLI and GUI respectively.
+Once the commands have completed the following weather data utilities will be
+available:
+- `wcli`: a command line utility to add and view weather data.
+- `wgui`: a GUI based on tkinter allowing weather data to be added and viewed.
+- `wserver`: a web server providing read-only REST services.
+- `dbload`: a command line utility that will load weather data into a database
+(sqlite is currently supported).
+- `dbcli`: a command line utility allowing weather data to be read from a
+database.
      
 #### Dependencies
 Here are the package dependencies installed via `setup.py` and the versions
@@ -53,19 +57,20 @@ being used.
 
 |Package|Version|
 |---|---|
-|pytz|2019.3 (Windows) 2020.1 (Linux)|
-|PyYAML|5.3.1|
-|requests|2.23.0|
-|tkcalendar|1.6.1|
-|tksheet|4.6.1 (Windows) 4.8.2 (Linux)|
 |Click|7.1.2|
 |fastapi|0.58.0|
+|orjson|3.1.1|
+|passlib|1.7.2|
 |pydantic|1.5.1|
 |PyJWT|1.7.1|
+|pytz|2019.3 (Windows) 2020.1 (Linux)|
+|PyYAML|5.3.1|
+|python-multipart|0.0.5|
+|requests|2.23.0|
+|SQLAlchemy|1.3.17
+|tkcalendar|1.6.1|
+|tksheet|4.6.1 (Windows) 4.8.2 (Linux)|
 |uvicorn|0.11.5|
-|python-nultipart|0.0.5|
-|passlib|1.7.2|
-|orjson|3.1.1|
 
 ### Running/Debugging from PyCharm
 Once I moved to `setuptools` and removed the previous runners I had to
@@ -93,10 +98,6 @@ For me, concepts in the language that most comes to mind are.
  boiler plate code crap it eliminates makes me smile.
 * Named tuples and dataclasses. Having a read-only object makes it really
 easy to pass data around without worry about modifications or copying.
-* The support for Generics and abstract classes. While I didn't make great
-use of either I was happy to see the language providing the support. Having
-a collection (no pun intended) of classes that help extend containers such
-as arrays and dictionaries was sorely needed. 
 * The typing system. Before I hear the groans go out, I really learned to
 appreciate the feature and use it a lot. It doesn't prohibit the ability to
 still use duck typing but when teamed up with intelligent IDE's such as
@@ -119,6 +120,8 @@ The `weather` directory contains all of the weather data packages.
 * `weather.domain` contains the weather data domain model and objects.
 * `weather.gui` contains the GUI client.
 * `weather.server` contains the REST api and server.
+* `weather.db` contains a simple database implementation built using
+`sqlalchemy`.
 
 ### The `cli` Package
 The CLI client is built on top of Python `argparse`. Similar to tools like
@@ -142,17 +145,83 @@ The `domain` package contains an internal `data` package that holds the known
 cities data. Similar to the configuration package, data is read via the
 `importlib` library.
 
-By default all weather data is stored in the `weather_data` directory in the
-current working directory. The following table describes files within the
-folder.
+By default all weather data is stored in the current working directory
+under a folder named `weather_data`. The following table describes files
+within the folder.
 
 |File|Description|
 |---|---|
 |`locations.json`|The cities (or locations) that can use the Dark Sky API|
-|`city/location.zip`|Weather data for an entry in the `locations.json` file|
+|`city/{location-alias}.zip`|The weather data storage for a location.|
 
-The city/location archive contains weather data files by date. The name of
-the archive entry reflects both the city/location and the data.
+Given the following weather data locations as displayed by `wcli`.
+```shell script
+$ wcli ll
+------Location------- ----Alias----- ---Longitude/Latitude---- -----Timezone------
+Boise, ID             boise_id          -116.2312/43.6007      America/Boise
+Carson City, NV       carson_city_nv    -119.7474/39.1511      America/Los_Angeles
+Fortuna Foothills, AZ foothills      -114.4118901/32.6578355   America/Phoenix
+Indio, CA             indio          -116.2188054/33.7192808   America/Los_Angeles
+Klamath Falls, OR     kfalls            -121.7754/42.2191      America/Los_Angeles
+Lake Havasu City, AZ  havasu         -114.3224495/34.4838502   America/Phoenix
+Lake Oswego, OR       lake_oswego_or    -122.7003/45.4129      America/Los_Angeles
+Las Cruces, NM        las_cruces_nm     -106.7893/32.3265      America/Denver
+Las Vegas, NV         vegas          -115.1485163/36.1672559   America/Los_Angeles
+Medford, OR           medford           -122.8537/42.3372      America/Los_Angeles
+Mesa, AZ              mesa           -111.8314773/33.4151117   America/Phoenix
+Roseburg, OR          roseburg          -123.3518/43.2232      America/Los_Angeles
+Seattle, WA           seattle        -122.3300624/47.6038321   America/Los_Angeles
+St. George, UT        stgeorge       -113.5841313/37.104153    America/Denver
+Tigard, OR            tigard            -122.7845/45.4237      America/Los_Angeles
+Tucson, AZ            tucson         -110.9748477/32.2228765   America/Phoenix
+```
+The `weather_data` folder would have the following content.
+```shell script
+]$ ls -go weather_data
+total 25320
+-rw-r--r--. 1 2035697 Jul 10 08:54 boise_id.zip
+-rw-rw-r--. 1 2093135 Jul 10 08:30 carson_city_nv.zip
+-rw-rw-r--. 1 2044268 Jun  1 12:39 foothills.zip
+-rw-rw-r--. 1 1977714 Jun 28 12:34 havasu.zip
+-rw-rw-r--. 1 2034949 Jun 28 12:32 indio.zip
+-rw-rw-r--. 1 2029631 Jul  8 09:25 kfalls.zip
+-rw-rw-r--. 1   56062 Jun  1 12:39 lake_oswego_or.zip
+-rw-rw-r--. 1 1592860 Jun  1 12:39 las_cruces_nm.zip
+-rw-rw-r--. 1    2693 Jul  4 09:05 locations.json
+-rw-rw-r--. 1 2004853 Jul  8 09:20 medford.zip
+-rw-rw-r--. 1 2038098 Jun  1 12:39 mesa.zip
+-rw-rw-r--. 1 1980186 Jul  7 08:58 roseburg.zip
+-rw-rw-r--. 1  145678 Jun  1 12:39 seattle.zip
+-rw-rw-r--. 1 1680247 Jul 10 13:28 stgeorge.zip
+-rw-rw-r--. 1 2065225 Jul  7 08:56 tigard.zip
+-rw-rw-r--. 1 2035792 Jun  1 12:39 tucson.zip
+-rw-rw-r--. 1   53839 Jun  1 12:39 vegas.zip
+```
+Details about the weather data storage can be viewed using the following `wcli`
+command.
+```shell script
+$ wcli ls
+      Location        Overall Size History Count Raw History Size Compressed Size
+--------------------- ------------ ------------- ---------------- ---------------
+Boise, ID                1,988 kiB         1,284       11,543 kiB       1,815 kiB
+Carson City, NV          2,044 kiB         1,284       11,640 kiB       1,841 kiB
+Fortuna Foothills, AZ    1,996 kiB         1,274       13,839 kiB       1,820 kiB
+Indio, CA                1,987 kiB         1,274       13,945 kiB       1,830 kiB
+Klamath Falls, OR        1,982 kiB         1,284       11,557 kiB       1,819 kiB
+Lake Havasu City, AZ     1,931 kiB         1,274       13,923 kiB       1,770 kiB
+Lake Oswego, OR             55 kiB            31          308 kiB          50 kiB
+Las Cruces, NM           1,556 kiB         1,061        9,204 kiB       1,392 kiB
+Las Vegas, NV               53 kiB            31          304 kiB          49 kiB
+Medford, OR              1,958 kiB         1,284       11,398 kiB       1,790 kiB
+Mesa, AZ                 1,990 kiB         1,274       13,975 kiB       1,839 kiB
+Roseburg, OR             1,934 kiB         1,284       11,445 kiB       1,761 kiB
+Seattle, WA                142 kiB            92          850 kiB         130 kiB
+St. George, UT           1,641 kiB         1,061       11,403 kiB       1,498 kiB
+Tigard, OR               2,017 kiB         1,284       11,870 kiB       1,854 kiB
+Tucson, AZ               1,988 kiB         1,274       14,004 kiB       1,826 kiB
+===================== ============ ============= ================ ===============
+Totals                  25,262 kiB        16,350      161,208 kiB      23,082 kiB
+```
 
 ### The `gui` Package
 The GUI came about because it became a pita to run the CLI to create a
@@ -161,11 +230,12 @@ It is implemented using `tkinter` so there are no dependencies on other
 libraries such a `gtk` or `qt`.
 
 This was the first time I really took a deep dive into `tkinter`. I'm a
-backend enterprise services architect but I've written UI and components with
-X11, Java, node.js, C#, and win32 in previous lives. I came away with an
-appreciation for `tkinter` and what can be done with Python and the library.
-Yes its a dated UI and lacks widgets that would really be helpful but it works
-and is fast. I thought about other graphical tool kits but I did most of the
+backend enterprise services architect however I have written UI and
+components using X11, Java, node.js, C#, and WIN32 in previous lives.
+I came away with an appreciation for `tkinter` and what can be done with Python
+using the library. Yes its a dated UI and lacks widgets that would really be
+helpful but it is cross platform (ok, well kinda) and reasonably fast. I
+thought about other graphical tool kits but I did most of the
 coding on my wife's laptop over this past winter and did not want to install
 a collection of other software libraries. I felt bad enough putting
 Python 3 and PyCharm on her laptop.
@@ -182,44 +252,132 @@ read-only REST frontend to the weather data domain. I also wanted to give the
 `OAuth2` integration a try. I've created several implementations of security
 with `Spring` and I was curious to see how they compared.
 
+#### REST services
 I was pleasantly surprised by the `FastAPI` framework. While not as rich as
 `Spring` it certainly is _much_ easier to use. The integration with `pydantic`
 and `OpenApi` (formerly Swagger) made it really easy to bring up the frontend
-and test without building out a client. The framework support for `OAuth2` made
+and test without building out a client.
+ 
+All service users must be authenticated. The framework support for `OAuth2` made
 it really easy (and fast development wise) to implement authentication and
 permissions. *Soooo* much easier than `Spring Security`. 
 
-Here are the service highlights:
+##### User services
+The user services provide read-only access to information about users of the
+system. It also has a hook to redirect requests to the login endpoint if
+a request does not include a `OAuth2` security header. A session will last
+5 minutes before needing to refresh.
 
-* There are two (2) categories of services.
-    * User services. All users can access information about their own account
-     however the other services are gated by a _user:read_ permission.
-    * Weather data services are gated by a _weather_data:read_ permission.
-* Authentication is managed by the server. There are 3 users defined out of the
-box and the password is the same as the username.
-    * The **admin** user is allowed _user:read_ and _weather_data:read_
-     permission.
-    * The **user** user is allowed _weather_data:read_ permission.
-    * The **guest** user is allowed _weather_data:read_ permissions however the
-    user is disabled and will not be able to authorize.
-* Permissions are granted to a user using `OAuth2` scopes, sent in as part
-of the authentication process. The authentication token returned by the services
-will be valid for 5 minutes.
-* The `OpenApi` integration is on by default and can be accessed by going to
-the `/docs` endpoint once the server is running.
-* The `server` script starts the REST services and has command line options to
-select the hostname and port to use. A side note on the script implementation.
-I came across `click`, decided to give it a try, and came away liking the
-framework. The declarative approach is a nice alternative compared to
-`argparse`.
+There are two (2) permissions or `OAuth2` scopes gating access to services.
+* A _user:read_ permission allows listing all users of the server. All users
+can see their account information without permission.
+* A _weather_data:read_ permission is required to access the weather data
+services.
 
-I originally was thinking about using `SQLAlchemy` combined with `SQLite` but...
-I'm not really a big fan of ORM (Object Relational Mapper) tools especially
-having fought `Hibernate` over the years. I much prefer document based data
-stores and `SQLite` has less than spectacular write speeds. I have the code
-stashed away and will probably include it in another push but right now
-preloading the 10k+ histories takes around 1.5 seconds so really why care...
+The following table provides information about the service users. A users
+password is the same as the username.
+
+|username|Permissions|Disabled|
+|---|---|---|
+|admin|_user:read_ _weather_data:read_||
+|user|_weather_data:read_||
+|guest|_weather_data:read_|Yes|
+
+##### Weather data services    
+The weather data services provide read-only access to locations and weather
+data history. The services for getting daily or hourly data should support
+paging but don't. Considering the use case, requesting 6 months of hourly
+data, the payload is reasonably small for my home network.
+
+##### The web server and `OpenApi` support
+The `wserver` script starts the REST services and has command line options to
+select the _hostname_ and _port_ to use. A side note on the script
+implementation. I came across `click`, decided to give it a try, and came away
+liking the framework. The declarative approach is a nice alternative compared
+to `argparse`.
+
+The `OpenApi` integration is on by default and can be accessed by going to
+the `/docs` endpoint. 
+
+### The `db` package
+When I went through the `fastAPI` tutorial I came across `sqlalchemy`. I'm
+not a huge fan of ORM frameworks having battled `Hibernate` in several 
+past lifetimes, however I thought it would be fun to try `sqlalchemy` out.
+Creation of the data models were straight forward and seemed to be less of a
+headache than `Hibernate` building from scratch.
+
+#### The database schemas
+Ok, I'm not a dba and I don't profess to be one. What I wanted to do was load
+some data that wasn't just a couple of tables holding weather data. With that
+in mind I decided to create data models that would include both the REST
+server users and the weather data history.
+
+##### User data schema
+The user data model consist of three tables:
+* The `users` table has user information.
+* The `permissions` table permission information.
+* The `user_permissions` table links users to permissions.
+
+##### Weather data schema
+The weather data model consists of four tables:
+* The `locations` table has information about a location.
+* The `daily` table contains normalized daily history for a location. A
+foreign key ties daily history to the associated location.
+* The `hourly` table contains normalized hourly history for a location. A
+foreign key ties hourly history to the associated location.
+* The `history` table contains both daily and hourly history for a
+location. The daily and hourly history are stored in separate columns as
+JSON blobs.
  
+The use case for weather data is find daily or hourly history for a location
+for a given date range. There really isn't a driving need to have normalized
+data at this point because the history date is the filter not content of
+the history data.
+
+##### Normalize data or not
+I decided to keep the normalize `daily` and `hourly` tables so I could measure
+difference in data size and time to load. As expected storing data as JSON
+blobs in the `history` table took about 3 times as much space as normalized
+tables. Data load times for the `history` table however is about 6 times faster
+(10 seconds versus ~1 minute). Time to access data is faster with the
+normalized tables however loading 6 months of history and measuring a time of
+40 ms versus 60 ms is not a concern at this point. Being able to load data in
+~10 seconds versus ~1 minute? To me that is much more significant.
+
+The `dbcli` utility has a command that will show approximate table usage in
+the `sqlite` database. Here's a sample of output from the command.
+```shell script
+$ dbcli ls
+      Location        Histories Daily Table Hourly Table History Table Tables Combined
+--------------------- --------- ----------- ------------ ------------- ---------------
+Boise, ID                 1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Carson City, NV           1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Fortuna Foothills, AZ     1,274     215 kiB    3,177 kiB    10,211 kiB      13,602 kiB
+Indio, CA                 1,274     215 kiB    3,177 kiB    10,211 kiB      13,602 kiB
+Klamath Falls, OR         1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Lake Havasu City, AZ      1,274     215 kiB    3,177 kiB    10,211 kiB      13,602 kiB
+Lake Oswego, OR              31       5 kiB       77 kiB       248 kiB         331 kiB
+Las Cruces, NM            1,061     179 kiB    2,645 kiB     8,504 kiB      11,328 kiB
+Las Vegas, NV                31       5 kiB       77 kiB       248 kiB         331 kiB
+Medford, OR               1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Mesa, AZ                  1,274     215 kiB    3,177 kiB    10,211 kiB      13,602 kiB
+Roseburg, OR              1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Seattle, WA                  92      15 kiB      229 kiB       737 kiB         982 kiB
+St. George, UT            1,061     179 kiB    2,645 kiB     8,504 kiB      11,328 kiB
+Tigard, OR                1,284     216 kiB    3,201 kiB    10,291 kiB      13,709 kiB
+Tucson, AZ                1,274     215 kiB    3,177 kiB    10,211 kiB      13,602 kiB
+===================== ========= =========== ============ ============= ===============
+Totals                   16,350   2,754 kiB   40,767 kiB   131,048 kiB     174,569 kiB
+```
+
+#### A note about sqlite
+The biggest issue with the database is write locking. Originally I had the
+`dbload` utility threaded and immediately hit *database locked* errors. I
+considered creating a queue with a worker thread that would write data however
+this would not be issues if I was using a backend such as `Postgres` or
+`Oracle` so why do it here. Database load time is around 60 seconds when
+including the normalized tables which is fine. 
+
 ### Where are the unit tests?
 There aren't any actually. I started out with building them out but the
 architecture was moving so quickly it became a pita to maintain them. There

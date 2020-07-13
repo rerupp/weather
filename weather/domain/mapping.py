@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, time
 from enum import Enum
 from typing import Dict, Callable, TypeVar, Generic, Sequence, Any, List
 
@@ -74,6 +74,10 @@ class DataConverter:
 
     @staticmethod
     def to_binary_datetime(data: any, tz: datetime.tzinfo) -> datetime:
+        if isinstance(data, datetime):
+            return data.astimezone(tz)
+        if isinstance(data, date):
+            return datetime.combine(data, time.min, tz)
         if data is not None:
             ts = data if isinstance(data, int) else int(data)
             return datetime.fromtimestamp(ts, tz=tz)
@@ -104,6 +108,11 @@ class DataConverter:
         if data is not None:
             data = DataConverter.to_binary_float(data)
             return "{:.{precision}f}".format(data, precision=precision)
+
+    @staticmethod
+    def to_binary_int(data: Any) -> int:
+        if data is not None:
+            return data if isinstance(data, int) else round(data) if isinstance(data, float) else int(data)
 
 
 ConvertType = TypeVar("ConvertType", str, Enum)

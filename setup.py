@@ -17,12 +17,15 @@ setup(
         'python-multipart',
         'pyjwt',
         'passlib[bcrypt]',
-        'orjson'
+        'orjson',
+        'sqlalchemy'
     ],
     entry_points='''
         [console_scripts]
-        gui=weather.gui:run_gui
-        cli=weather.cli:run_cli
-        server=weather.server:run_server
+        wgui=weather.gui:run_gui
+        wcli=weather.cli:run_cli
+        wserver=weather.server:run_server
+        dbload=weather.db.tools:db_load
+        dbcli=weather.db.tools:cli
     ''',
 )

@@ -1,6 +1,6 @@
 from logging import getLogger
 from .mapping import DailyWeatherContent, HourlyWeatherContent, DataConverter, GenericDataConverter
-from .objects import CityDB, CsvDictWriter, DateRange, DataPath, Location, DataPath, DictionaryWriter
+from .objects import CityDB, CsvDictWriter, DateRange, DataPath, FullHistory, Location, DataPath, DictionaryWriter
 from .models import (
     DataSourceReader, DataSourceWriter, WeatherHistory, HistoryProperties, WeatherData, WeatherHistoryProperties
 )
