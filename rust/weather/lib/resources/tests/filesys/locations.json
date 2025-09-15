@@ -1,0 +1,31 @@
+{
+  "locations": [
+    {
+      "city": "Southern City",
+      "state_id": "GA",
+      "state": "Georgia",
+      "alias": "south",
+      "longitude": "-110.9748477",
+      "latitude": "32.2228765",
+      "tz": "America/Phoenix"
+    },
+    {
+      "city": "Between City",
+      "state_id": "KS",
+      "state": "Kansas",
+      "alias": "between",
+      "longitude": "-119.7474",
+      "latitude": "39.1511",
+      "tz": "America/Los_Angeles"
+    },
+    {
+      "city": "Northern City",
+      "state_id": "MT",
+      "state": "Montana",
+      "alias": "north",
+      "longitude": "-122.7845",
+      "latitude": "45.4237",
+      "tz": "America/Los_Angeles"
+    }
+  ]
+}

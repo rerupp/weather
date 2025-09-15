@@ -1,0 +1,19 @@
+[package]
+name = "py_weather_lib"
+version = "0.5.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "py_weather_lib"
+crate-type = ["cdylib"]
+
+[dependencies]
+chrono.workspace = true
+log.workspace = true
+toolslib.workspace = true
+weather_lib = { path = "../lib" }
+
+[dependencies.pyo3]
+version = "0.22.0"
+features = ["chrono"]

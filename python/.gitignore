@@ -1,0 +1,14 @@
+/Cargo.lock
+/target
+.vscode
+.idea
+*.code-workspace
+weather_data
+weather.toml
+,*
+*.err
+*.log
+*.lis
+*.txt
+**/uscities.csv
+venv

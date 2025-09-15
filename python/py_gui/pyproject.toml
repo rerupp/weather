@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = 'py_gui'
+dynamic = ["version"]
+description = "The weather data GUI"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3"
+]
+dependencies = [
+    "importlib-resources",
+    "pytz",
+    'python-dateutil',
+#    'PyYAML',
+    'numpy',
+    'matplotlib',
+    "tkcalendar",
+    "tzdata"
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "py_gui.metadata.__version__" }
+
+[project.scripts]
+wgui = "py_gui:run"

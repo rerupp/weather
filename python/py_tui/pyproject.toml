@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = 'py_tui'
+dynamic = ["version"]
+description = "The weather data Python TUI"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3"
+]
+dependencies = [
+    "pytz",
+    "textual",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "py_tui.metadata.__version__" }
+
+[project.scripts]
+wtui = "py_tui:run"

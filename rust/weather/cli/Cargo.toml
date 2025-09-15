@@ -1,0 +1,25 @@
+[package]
+name = "weather"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "weather"
+path = "src/main.rs"
+
+[features]
+log_key_event = []
+log_render = []
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+clap = { version = "4.5", features = ["derive"] }
+csv = "1.3"
+log.workspace = true
+serde_json.workspace = true
+toolslib.workspace = true
+weather_lib = { path = "../lib" }
+termui_lib = { path = "../termui"}
+crossterm.workspace = true
+ratatui.workspace = true

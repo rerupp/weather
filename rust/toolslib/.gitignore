@@ -1,0 +1,9 @@
+/target
+/Cargo.lock
+.vscode
+.idea
+*.code-workspace
+*.lis
+*.log
+*.lis
+,*

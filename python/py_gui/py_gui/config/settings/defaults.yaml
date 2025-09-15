@@ -1,0 +1,17 @@
+---
+logging:
+    default_logging_level: "warning"
+    log_format: "%(levelname)s: %(message)s"
+domain:
+    history_api_key: The weather history API key
+    weather_data_dir: weather_data
+    logging_level: "warning"
+gui:
+    windows_native_theme: False
+    graph_colors:
+    - blue2
+    - dark green
+    - DarkOrange1
+    - dark violet
+    - saddle brown
+    logging_level: "warning"
