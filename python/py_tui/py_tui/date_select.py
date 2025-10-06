@@ -151,7 +151,7 @@ class DateRangeInput(Vertical):
         #end {
             width: auto;
             height: auto;
-            offset: 1 0;
+            # offset: 1 0;
         }
     }
     """
@@ -183,7 +183,7 @@ class DateRangeInput(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Center(DateInput("Start:", value=self._start, id=self.START_ID[1:]))
-        yield Center(DateInput("End:", value=self._end, id=self.END_ID[1:]))
+        yield Center(DateInput("  End:", value=self._end, id=self.END_ID[1:]))
 
     @property
     def value(self) -> PyDateRange | None:

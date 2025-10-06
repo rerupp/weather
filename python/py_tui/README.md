@@ -6,19 +6,18 @@ This project provides a terminal UI to display weather history that has
 been collected by the Rust weather data project. The TUI is built using the
 `textual` toolkit.
 
-The `py_weather_lib` project provides the Python bindings to the Rust backend API.
-**PyCharm** is the IDE I primarily use to edit code and there is an annoying issue
-with the editor. **PyCharm** does not grok function signature information from the
-`Pyo3` generated stub files from native extensions. There is an open issue, PY-54189
-in YouTrack, that has been around for 3 years. Definitely not a priority for the PyCharm
-team. I've avoided using `Python` interface files as suggested by the `Maturin` toolkit
-but it is so annoying I'll probably add them in a future release. 
+The API used by Python is within the Rust [weather](../../rust/weather/README.md)
+workspace. The [py_lib](../../rust/weather/py_lib/README.md) project contains code that
+defines the Python API used to access the Rust [weather_lib](../../rust/weather/lib)
+backend. The `py_lib` project has instructions on how to create the `py_weather_lib`
+package used by the TUI. The `py_weather_lib` includes Python *type stubs* allowing
+an IDE such as PyCharm to understand the `py_weather_lib` API.
 
 ### Third Party Packages
 
-There are several 3rd party libraries used by the GUI.
+There are several 3rd party libraries used by the TUI.
 
-- **`textual[syntax]`** provides terminal UI framework.
+- **`textual[syntax]`** provides the terminal UI framework.
 - **`pytz`** provides access to timezone information.
 
 I highly recommend installing `textual-dev` along with the `textual` package. Out of the
@@ -34,7 +33,7 @@ Installation of the TUI is managed by the `setuptools` toolkit. It will install
 the TUI package dependencies and creates the console command `tgui` that will
 launch the application.
 
-Create the `tgui` command using the following `pip` command:
+Create the `tgui` command from the current directory using the following `pip` command:
 
 ```
 (venv) c: pip install --editable .

@@ -43,7 +43,7 @@ class HistoryReport(WeatherView):
         else:
             stopwatch.restart()
             filters = PyLocationFilter(name=self._location_alias)
-            daily_histories = self._weather_data.backend.get_daily_history(filters, report_selection.date_range)
+            daily_histories = self._weather_data.backend.get_daily_histories(filters, report_selection.date_range)
             headings = _create_headings(report_selection)
             contents = _create_contents(daily_histories, report_selection)
             self._sheet = Sheet(parent, headings, contents, view_labeled=True)

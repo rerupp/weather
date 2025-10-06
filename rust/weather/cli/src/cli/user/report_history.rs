@@ -158,7 +158,7 @@ mod v4 {
     pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
         let filter = LocationFilter::default().with_name(&get_location(&args));
         let date_range = DateRange { start: get_from(&args), end: get_thru(&args) };
-        let histories = match weather_data.get_daily_history(filter, date_range) {
+        let histories = match weather_data.get_daily_histories(filter, date_range) {
             Ok(histories) => histories,
             Err(error) => err!("Report history error getting daily history: {:?}", error)?,
         };

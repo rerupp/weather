@@ -6,12 +6,12 @@ use chrono::NaiveDate;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use std::{
     io::{stdout, Write},
-    thread::sleep,
-    time::{Duration, SystemTime},
+    thread,
+    time::Duration,
 };
 use weather_lib::{
     location_filter, location_filters,
-    prelude::{DailyHistories, DateRange, HistoryClient, Location, WeatherData},
+    prelude::{DailyHistories, DateRange, HistoriesFuture, WeatherData},
 };
 
 /// The add weather data history command name.
@@ -80,56 +80,35 @@ pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> 
                 let from = args.get_one::<NaiveDate>(FROM).unwrap();
                 let to = args.get_one::<NaiveDate>(THRU).map_or(from, |d| d);
                 let date_range = DateRange { start: from.clone(), end: to.clone() };
-                match weather_data.get_history_client() {
-                    Err(error) => err!("Failed to get history client: {:?}", error),
-                    Ok(client) => {
-                        let daily_histories = get_histories(&client, location, date_range)?;
-                        let histories_found = daily_histories.histories.len();
-                        let histories_added = weather_data.add_histories(daily_histories)?;
-                        println!("\n{} histories received, {} histories added.", histories_found, histories_added);
-                        Ok(())
-                    }
+                let future = weather_data.new_daily_histories(location_filter!(name = &location.alias), date_range)?;
+                let daily_histories = get_histories(future)?;
+                if daily_histories.is_none() {
+                    err!("No daily histories found for {}.", location.name)?;
                 }
+                let histories_added = weather_data.add_histories(daily_histories.unwrap())?;
+                println!("\n{} histories added", histories_added);
+                Ok(())
             }
         }
     }
 }
 
-/// This function manages calling the history client and providing a hint on the request progress.
-///
-/// # Arguments
-///
-/// - `client` is the history client.
-/// - `location` is the historical weather data owner.
-/// - `date_range` are the dates being asked for.
-///
-fn get_histories(
-    client: &Box<dyn HistoryClient>,
-    location: Location,
-    date_range: DateRange,
-) -> cli::Result<DailyHistories> {
-    client.execute(&location, &date_range)?;
-    let timeout = SystemTime::now() + Duration::new(30, 0);
-    let pause = Duration::from_millis(10);
+fn get_histories(future: HistoriesFuture) -> cli::Result<Option<DailyHistories>> {
     let mut loop_cnt = 0usize;
-    // this loop could use some tender love
+    let sleep_interval = Duration::from_millis(1);
     loop {
-        if SystemTime::now() > timeout {
-            err!("Client history timed out")?;
+        if future.is_finished() {
+            break;
         }
-        if (loop_cnt % 20) == 0 {
+        loop_cnt += 1;
+        if (loop_cnt % 100) == 0 {
             write!(stdout().lock(), ".").unwrap();
             stdout().flush().unwrap();
         }
-        loop_cnt += 1;
-        if client.poll()? {
-            break;
-        }
-        sleep(pause);
+        thread::sleep(sleep_interval);
     }
-    // poll() breaks the loop so this will not hang the commandline
-    match client.get() {
+    match future.get() {
         Ok(daily_histories) => Ok(daily_histories),
-        Err(error) => err!("{error}"),
+        Err(error) => err!("Error getting daily histories:  {error}."),
     }
 }

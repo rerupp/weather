@@ -70,9 +70,10 @@ mod backend;
 
 mod entities;
 
-mod history_client;
+// mod history_client;
 
 mod admin;
+mod histories_future;
 
 /// The public weather data API.
 pub mod prelude {
@@ -81,7 +82,7 @@ pub mod prelude {
             DailyHistories, DateRange, DateRanges, History, HistoryDates, HistorySummaries, HistorySummary, Location,
             LocationFilter, LocationFilters, State, CityFilter,
         },
-        history_client::HistoryClient,
+        histories_future::{HistoriesFuture},
         location_filter, location_filters,
         weather_data::{create_weather_data, WeatherData},
     };

@@ -1,6 +1,5 @@
 //! Structures used by the weather data `API`s.
-
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
 /// A locations daily weather history.
 #[derive(Debug)]
@@ -259,6 +258,108 @@ pub struct History {
     /// A summary of the daily weather.
     pub description: Option<String>,
 }
+impl History {
+    /// A type-method that accepts a compass bearing and returns a human readable direction.
+    ///
+    /// The four cardinal points on a compass are subdivided into a finer grained
+    /// direction strings as shown below:
+    /// ```text
+    /// N NNE NE ENE
+    /// E ESE SE SSE
+    /// S SSW SW WSW
+    /// W WNW NW NNW
+    /// ```
+    ///
+    /// There is a window around the absolute direction to determine the bearing string.
+    /// As an example any bearing between 348.75 degrees and 11.25 degrees will be returned
+    /// as a `N` bearing string.
+    ///
+    /// If the option is `None` an empty string will be returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `wind_direction` - the bearing that will be converter to a string.
+    ///
+    pub fn wind_direction_str(wind_direction: Option<i64>) -> &'static str {
+        static BEARINGS: [&'static str; 16] =
+            ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+        match wind_direction {
+            Some(direction) => BEARINGS[(direction as f64 / 22.5).round() as usize % 16],
+            _ => Default::default(),
+        }
+    }
+
+    /// A type-method that accepts a UV index and returns a human readable string.
+    ///
+    /// The possible UV index strings are:
+    ///
+    /// | UV Index | Description |
+    /// | :----: | :----: |
+    /// | 1-2 | low |
+    /// | 3-5 | moderate |
+    /// | 6-7 | high |
+    /// | 8-10 | very high |
+    /// | 11+ | extreme |
+    ///
+    /// If the option is `None` or the value 0, an empty string will be returned.
+    ///
+    pub fn uv_index_str(uv_index: Option<f64>) -> &'static str {
+        match uv_index {
+            Some(uv_index) if uv_index > 0.0 => match uv_index.round() as usize {
+                1 | 2 => "low",
+                3 | 4 | 5 => "moderate",
+                6 | 7 => "high",
+                8 | 9 | 10 => "very high",
+                _ => "extreme",
+            },
+            _ => Default::default(),
+        }
+    }
+
+    /// A type-method that accepts a moon phase and returns a human readable string.
+    ///
+    /// The possible moon phase indicators are:
+    ///
+    /// | Moon Phase | Description |
+    /// | :----: | :----: |
+    /// | 0 | new moon |
+    /// | 0-0.25 | waxing crescent |
+    /// | 0.25 | first quarter |
+    /// | 0.25-0.5 | waxing gibbous |
+    /// | 0.5 | full moon |
+    /// | 0.5-0.75 | waning gibbous |
+    /// | 0.75 | last quarter |
+    /// | 0.75-1.0 | waning crescent |
+    ///
+    /// If the option is `None` an empty string will be returned.
+    ///
+    pub fn moon_phase_str(moon_phase: Option<f64>) -> &'static str {
+        match moon_phase {
+            Some(moon_phase) => {
+                if moon_phase >= 0.0 && moon_phase <= 0.01 {
+                    "new moon"
+                } else if moon_phase > 0.01 && moon_phase < 0.24 {
+                    "waxing crescent"
+                } else if moon_phase >= 0.24 && moon_phase <= 0.26 {
+                    "first quarter"
+                } else if moon_phase > 0.26 && moon_phase < 0.49 {
+                    "waxing gibbous"
+                } else if moon_phase >= 0.49 && moon_phase <= 0.51 {
+                    "full moon"
+                } else if moon_phase > 0.51 && moon_phase < 0.74 {
+                    "waning gibbous"
+                } else if moon_phase >= 0.74 && moon_phase <= 0.76 {
+                    "last quarter"
+                } else if moon_phase > 0.76 && moon_phase <= 1.0 {
+                    "waning crescent"
+                } else {
+                    "unknown"
+                }
+            }
+            _ => Default::default(),
+        }
+    }
+}
 
 /// For a given `NaiveDate` return the next day `NaiveDate`.
 macro_rules! next_day {
@@ -278,34 +379,57 @@ pub struct DateRanges {
 }
 impl DateRanges {
     pub fn new(location_id: &str, mut dates: Vec<NaiveDate>) -> Self {
-        dates.sort_unstable();
-        let mut ranges = vec![];
-        let dates_len = dates.len();
-        if dates_len == 1 {
-            ranges.push(DateRange::new(dates[0], dates[0]));
-        } else if dates_len > 1 {
-            let mut from = dates[0];
-            let mut to = dates[0];
-            for i in 1..dates_len {
-                if next_day!(to) != dates[i] {
-                    ranges.push(DateRange::new(from, to));
-                    from = dates[i];
-                    to = dates[i];
-                } else {
-                    to = dates[i];
+        match dates.is_empty() {
+            true => Self { location_id: location_id.to_string(), date_ranges: vec![] },
+            false => {
+                dates.sort_unstable();
+                // walk the dates collection and create all the date ranges
+                let mut date_ranges: Vec<DateRange> = vec![];
+                let mut start = dates[0];
+                let mut end = start;
+                for date in dates.drain(1..) {
+                    // capture date ranges on a years boundary
+                    if date.year() != end.year() {
+                        date_ranges.push(DateRange::new(start, end));
+                        start = date;
+                        end = date;
+                    } else if next_day!(end) != date {
+                        date_ranges.push(DateRange::new(start, end));
+                        start = date;
+                        end = date;
+                    } else {
+                        end = date;
+                    }
                 }
+                date_ranges.push(DateRange::new(start, end));
+                // now walk back through the date ranges collecting consecutive yearly date ranges
+                let mut self_ = Self { location_id: location_id.to_string(), date_ranges: vec![] };
+                for date_range in date_ranges {
+                    match self_.date_ranges.last_mut() {
+                        None => self_.date_ranges.push(date_range),
+                        Some(last_date_range) => match date_range.is_one_year() {
+                            false => self_.date_ranges.push(date_range),
+                            true => match last_date_range.is_one_year() || last_date_range.is_multi_year() {
+                                false => self_.date_ranges.push(date_range),
+                                true => match next_day!(last_date_range.end) == date_range.start{
+                                    false => self_.date_ranges.push(date_range),
+                                    true => last_date_range.end = date_range.end
+                                }
+                            }
+                        }
+                    }
+                }
+                self_
             }
-            ranges.push(DateRange::new(from, to));
         }
-        Self { location_id: location_id.to_string(), date_ranges: ranges }
     }
     pub fn covers(&self, date: &NaiveDate) -> bool {
-        self.date_ranges.iter().any(|date_range| date_range.covers(date))
+        self.date_ranges.iter().any(|date_range| date_range.contains(date))
     }
 }
 
 /// A container for a range of dates.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DateRange {
     /// The starting date of the range.
     pub start: NaiveDate,
@@ -326,12 +450,34 @@ impl DateRange {
     pub fn is_one_day(&self) -> bool {
         &self.start == &self.end
     }
+    /// Returns `true` if the date range covers an entire year.
+    pub fn is_one_year(&self) -> bool {
+        if self.start.month() == 1 && self.start.day() == 1 {
+            if self.end.month() == 12 && self.end.day() == 31 {
+                if self.start.year() == self.end.year() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    /// Returns `true` if the date range covers multi entire years.
+    pub fn is_multi_year(&self) -> bool {
+        if self.start.month() == 1 && self.start.day() == 1 {
+            if self.end.month() == 12 && self.end.day() == 31 {
+                if self.start.year() != self.end.year() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
     /// Identifies if a date is within the date range.
     ///
     /// # Arguments
     ///
     /// * `date` is the date that will be checked.
-    pub fn covers(&self, date: &NaiveDate) -> bool {
+    pub fn contains(&self, date: &NaiveDate) -> bool {
         date >= &self.start && date <= &self.end
     }
     /// Allow the history range to be iterated over without consuming it.
@@ -358,6 +504,20 @@ impl IntoIterator for &DateRange {
     type IntoIter = DateRangeIterator;
     fn into_iter(self) -> Self::IntoIter {
         DateRangeIterator { from: self.start, thru: self.end }
+    }
+}
+impl std::fmt::Display for DateRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let fmt: &'static str = "%b-%d-%Y";
+        if self.is_one_day() {
+            write!(f, "{}", self.start.format(fmt))
+        } else if self.is_one_year() {
+            write!(f, "{:04}", self.start.year())
+        } else if self.is_multi_year() {
+            write!(f, "{:04} thru {:04}", self.start.year(), self.end.year())
+        } else {
+            write!(f, "{} thru {}", self.start.format(fmt), self.end.format(fmt))
+        }
     }
 }
 
@@ -425,7 +585,7 @@ mod tests {
     use toolslib::date_time::get_date;
 
     #[test]
-    pub fn iterate() {
+    pub fn date_range_iterate() {
         let range = DateRange::new(get_date(2022, 6, 1), get_date(2022, 6, 30));
         let mut testcase = range.start.clone();
         let test_cases: Vec<NaiveDate> = range.into_iter().collect();
@@ -438,16 +598,16 @@ mod tests {
     }
 
     #[test]
-    fn is_within() {
+    fn date_range_is_within() {
         let testcase = DateRange::new(get_date(2023, 7, 1), get_date(2023, 7, 31));
-        assert!(testcase.covers(&get_date(2023, 7, 1)));
-        assert!(!testcase.covers(&get_date(2023, 6, 30)));
-        assert!(testcase.covers(&get_date(2023, 7, 31)));
-        assert!(!testcase.covers(&get_date(2023, 8, 1)));
+        assert!(testcase.contains(&get_date(2023, 7, 1)));
+        assert!(!testcase.contains(&get_date(2023, 6, 30)));
+        assert!(testcase.contains(&get_date(2023, 7, 31)));
+        assert!(!testcase.contains(&get_date(2023, 8, 1)));
     }
 
     #[test]
-    pub fn to_iso8601_history_range() {
+    pub fn date_range_to_iso8601_history_range() {
         let test_case = DateRange::new(get_date(2022, 7, 1), get_date(2022, 7, 2));
         let (from, to) = test_case.as_iso8601();
         assert_eq!(from, "2022-07-01");
@@ -455,48 +615,41 @@ mod tests {
     }
 
     #[test]
-    pub fn date_ranges() {
-        let testcase = DateRanges::new(
-            "test",
-            vec![
-                get_date(2025, 5, 1),
-                get_date(2025, 5, 3),
-                get_date(2025, 5, 4),
-                get_date(2025, 5, 6),
-                get_date(2025, 5, 8),
-                get_date(2025, 5, 9),
-            ],
-        );
-        assert_eq!(testcase.location_id, "test");
-        assert_eq!(testcase.date_ranges.len(), 4);
-        assert_eq!(testcase.date_ranges[0], DateRange::new(get_date(2025, 5, 1), get_date(2025, 5, 1)));
-        assert_eq!(testcase.date_ranges[1], DateRange::new(get_date(2025, 5, 3), get_date(2025, 5, 4)));
-        assert_eq!(testcase.date_ranges[2], DateRange::new(get_date(2025, 5, 6), get_date(2025, 5, 6)));
-        assert_eq!(testcase.date_ranges[3], DateRange::new(get_date(2025, 5, 8), get_date(2025, 5, 9)));
+    fn date_range_to_string() {
+        macro_rules! date_range {
+            ($start:expr, $end:expr) => {
+                DateRange::new(get_date($start.0, $start.1, $start.2), get_date($end.0, $end.1, $end.2))
+            };
+        }
+        assert_eq!(date_range!((2020, 1, 1), (2020, 1, 1)).to_string(), "Jan-01-2020");
+        assert_eq!(date_range!((2020, 1, 1), (2020, 12, 31)).to_string(), "2020");
+        assert_eq!(date_range!((2020, 1, 1), (2021, 12, 31)).to_string(), "2020 thru 2021");
+        assert_eq!(date_range!((2020, 1, 1), (2022, 1, 1)).to_string(), "Jan-01-2020 thru Jan-01-2022");
     }
 
-    // #[test]
-    // pub fn location_criteria() {
-    //     let default = LocationCriteria::default();
-    //     assert!(default.filter.is_none());
-    //     assert!(default.include_all());
-    //     assert_eq!(default.limit, usize::MAX);
-    //
-    //     let empty = LocationCriteria::new(None, None, None, None);
-    //     assert!(empty.filter.is_none());
-    //     assert!(empty.include_all());
-    //     assert_eq!(empty.limit, usize::MAX);
-    //
-    //     let city = "City".to_string();
-    //     let state = "State".to_string();
-    //     let name = "Name".to_string();
-    //     let full = LocationCriteria::new(Some(city.clone()), Some(state.clone()), Some(name.clone()), Some(250));
-    //     assert!(!full.include_all());
-    //     assert_eq!(full.filter.city, Some(city));
-    //     assert_eq!(full.filter.state, Some(state));
-    //     assert_eq!(full.filter.name, Some(name));
-    //     assert_eq!(full.limit, 250);
-    // }
+    #[test]
+    pub fn date_ranges() {
+        let mut dates = DateRange::new(get_date(2012, 1, 1), get_date(2012, 4, 30)).into_iter().collect::<Vec<_>>();
+        dates.append(&mut DateRange::new(get_date(2019, 10, 1), get_date(2021, 4, 30)).into_iter().collect::<Vec<_>>());
+        dates.append(&mut DateRange::new(get_date(2012, 6, 1), get_date(2012, 8, 31)).into_iter().collect::<Vec<_>>());
+        dates.append(&mut DateRange::new(get_date(2018, 1, 1), get_date(2018, 12, 31)).into_iter().collect::<Vec<_>>());
+        dates.append(&mut DateRange::new(get_date(2014, 1, 1), get_date(2016, 12, 31)).into_iter().collect::<Vec<_>>());
+        let testcase = DateRanges::new("alias", dates);
+        assert_eq!("alias", testcase.location_id);
+        let expected = vec![
+            DateRange::new(get_date(2012, 1, 1), get_date(2012, 4, 30)),
+            DateRange::new(get_date(2012, 6, 1), get_date(2012, 8, 31)),
+            DateRange::new(get_date(2014, 1, 1), get_date(2016, 12, 31)),
+            DateRange::new(get_date(2018, 1, 1), get_date(2018, 12, 31)),
+            DateRange::new(get_date(2019, 10, 1), get_date(2019, 12, 31)),
+            DateRange::new(get_date(2020, 1, 1), get_date(2020, 12, 31)),
+            DateRange::new(get_date(2021, 1, 1), get_date(2021, 4, 30)),
+        ];
+        assert_eq!(testcase.date_ranges.len(), expected.len());
+        for (idx, date_range) in testcase.date_ranges.iter().enumerate() {
+            assert_eq!(&expected[idx], date_range);
+        }
+    }
 
     #[test]
     pub fn location_filter() {
@@ -544,5 +697,83 @@ mod tests {
         assert!(testcase.city.is_none());
         assert!(testcase.state.is_none());
         assert_eq!(testcase.name.unwrap(), "Name");
+    }
+
+    #[test]
+    fn moon_phase() {
+        assert_eq!(History::moon_phase_str(None), "");
+        assert_eq!(History::moon_phase_str(Some(0.0)), "new moon");
+        assert_eq!(History::moon_phase_str(Some(0.01)), "new moon");
+        assert_eq!(History::moon_phase_str(Some(0.011)), "waxing crescent");
+        assert_eq!(History::moon_phase_str(Some(0.239)), "waxing crescent");
+        assert_eq!(History::moon_phase_str(Some(0.24)), "first quarter");
+        assert_eq!(History::moon_phase_str(Some(0.26)), "first quarter");
+        assert_eq!(History::moon_phase_str(Some(0.261)), "waxing gibbous");
+        assert_eq!(History::moon_phase_str(Some(0.489)), "waxing gibbous");
+        assert_eq!(History::moon_phase_str(Some(0.49)), "full moon");
+        assert_eq!(History::moon_phase_str(Some(0.51)), "full moon");
+        assert_eq!(History::moon_phase_str(Some(0.511)), "waning gibbous");
+        assert_eq!(History::moon_phase_str(Some(0.739)), "waning gibbous");
+        assert_eq!(History::moon_phase_str(Some(0.74)), "last quarter");
+        assert_eq!(History::moon_phase_str(Some(0.76)), "last quarter");
+        assert_eq!(History::moon_phase_str(Some(0.761)), "waning crescent");
+        assert_eq!(History::moon_phase_str(Some(1.0)), "waning crescent");
+        assert_eq!(History::moon_phase_str(Some(1.001)), "unknown");
+    }
+    #[test]
+    fn wind_bearing() {
+        assert_eq!(History::wind_direction_str(None), "");
+        assert_eq!(History::wind_direction_str(Some(0)), "N");
+        assert_eq!(History::wind_direction_str(Some(11)), "N");
+        assert_eq!(History::wind_direction_str(Some(12)), "NNE");
+        assert_eq!(History::wind_direction_str(Some(33)), "NNE");
+        assert_eq!(History::wind_direction_str(Some(34)), "NE");
+        assert_eq!(History::wind_direction_str(Some(56)), "NE");
+        assert_eq!(History::wind_direction_str(Some(57)), "ENE");
+        assert_eq!(History::wind_direction_str(Some(78)), "ENE");
+        assert_eq!(History::wind_direction_str(Some(79)), "E");
+        assert_eq!(History::wind_direction_str(Some(101)), "E");
+        assert_eq!(History::wind_direction_str(Some(102)), "ESE");
+        assert_eq!(History::wind_direction_str(Some(123)), "ESE");
+        assert_eq!(History::wind_direction_str(Some(124)), "SE");
+        assert_eq!(History::wind_direction_str(Some(146)), "SE");
+        assert_eq!(History::wind_direction_str(Some(147)), "SSE");
+        assert_eq!(History::wind_direction_str(Some(168)), "SSE");
+        assert_eq!(History::wind_direction_str(Some(169)), "S");
+        assert_eq!(History::wind_direction_str(Some(191)), "S");
+        assert_eq!(History::wind_direction_str(Some(192)), "SSW");
+        assert_eq!(History::wind_direction_str(Some(213)), "SSW");
+        assert_eq!(History::wind_direction_str(Some(214)), "SW");
+        assert_eq!(History::wind_direction_str(Some(236)), "SW");
+        assert_eq!(History::wind_direction_str(Some(237)), "WSW");
+        assert_eq!(History::wind_direction_str(Some(258)), "WSW");
+        assert_eq!(History::wind_direction_str(Some(259)), "W");
+        assert_eq!(History::wind_direction_str(Some(281)), "W");
+        assert_eq!(History::wind_direction_str(Some(282)), "WNW");
+        assert_eq!(History::wind_direction_str(Some(303)), "WNW");
+        assert_eq!(History::wind_direction_str(Some(304)), "NW");
+        assert_eq!(History::wind_direction_str(Some(326)), "NW");
+        assert_eq!(History::wind_direction_str(Some(327)), "NNW");
+        assert_eq!(History::wind_direction_str(Some(348)), "NNW");
+        assert_eq!(History::wind_direction_str(Some(349)), "N");
+        assert_eq!(History::wind_direction_str(Some(360)), "N");
+    }
+
+    #[test]
+    fn uv_index() {
+        assert_eq!(History::uv_index_str(None), "");
+        assert_eq!(History::uv_index_str(Some(0.0)), "");
+        assert_eq!(History::uv_index_str(Some(1.0)), "low");
+        assert_eq!(History::uv_index_str(Some(2.0)), "low");
+        assert_eq!(History::uv_index_str(Some(3.0)), "moderate");
+        assert_eq!(History::uv_index_str(Some(4.0)), "moderate");
+        assert_eq!(History::uv_index_str(Some(5.0)), "moderate");
+        assert_eq!(History::uv_index_str(Some(6.0)), "high");
+        assert_eq!(History::uv_index_str(Some(7.0)), "high");
+        assert_eq!(History::uv_index_str(Some(8.0)), "very high");
+        assert_eq!(History::uv_index_str(Some(9.0)), "very high");
+        assert_eq!(History::uv_index_str(Some(10.0)), "very high");
+        assert_eq!(History::uv_index_str(Some(11.0)), "extreme");
+        assert_eq!(History::uv_index_str(Some(12.0)), "extreme");
     }
 }

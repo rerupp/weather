@@ -92,7 +92,7 @@ impl ReportDialog {
             Ok(date_range) => {
                 self.criteria.set_active(false);
                 let filter = location_filter!(name = &self.location_name);
-                match self.weather_data.get_daily_history(filter, date_range) {
+                match self.weather_data.get_daily_histories(filter, date_range) {
                     Err(error_message) => {
                         let message = format!("Failed to get daily history ({}).", error_message);
                         log::error!("{}", message);

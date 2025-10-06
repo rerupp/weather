@@ -263,7 +263,7 @@ mod tests {
         let added_dates = testcase.append(&history_data).unwrap();
         assert_eq!(added_dates.len(), 5);
         for date in added_dates {
-            assert!(test_dates.covers(&date))
+            assert!(test_dates.contains(&date))
         }
 
         // spot check the archive
@@ -271,7 +271,7 @@ mod tests {
         let histories: Vec<History> = testcase.histories(&test_dates).unwrap().collect();
         assert_eq!(histories.len(), 5);
         for history in histories {
-            assert!(test_dates.covers(&history.date));
+            assert!(test_dates.contains(&history.date));
         }
         let archive_file = weather_dir.archive("history_archive");
         assert!(!archive_file.with_extension(archive_file::BACKUP_EXT).exists());

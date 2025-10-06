@@ -1,4 +1,3 @@
-#![allow(unused)]
 use std::path::{Path, PathBuf};
 use std::{
     fs::{self, File, Metadata, OpenOptions},

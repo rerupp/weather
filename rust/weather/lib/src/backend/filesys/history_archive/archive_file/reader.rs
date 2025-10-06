@@ -51,7 +51,7 @@ impl<R: Read + Seek> ArchiveReader<R> {
         let mut dates: Vec<NaiveDate> = Vec::new();
         for filename in self.archive.file_names() {
             let date = archive::filename_to_date(filename)?;
-            if date_range.covers(&date) {
+            if date_range.contains(&date) {
                 dates.push(date)
             }
         }

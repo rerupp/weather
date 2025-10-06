@@ -1,0 +1,34 @@
+MessageBox {
+    align: center middle;
+    Container {
+        align: center middle;
+        width: 60;
+        height: auto;
+        border: solid white 50%;
+        border-title-style: bold;
+        border-title-align: center;
+        padding: 1;
+        Label {
+            width: auto;
+            height: auto;
+        }
+        Button {
+            # align: center middle;
+            margin-top: 1;
+            width: auto;
+            height: auto;
+            color: $primary;
+        }
+    }
+    #info {
+        Label { color: $success; }
+    }
+    #warning {
+        border-title-color: $warning;
+        Label { color: $warning; }
+    }
+    #error {
+        border-title-color: $error;
+        Label { color: $error; }
+    }
+}

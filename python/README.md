@@ -10,21 +10,36 @@ birds kept saying it was the coldest winter they could remember.
 This led me to see if there was a way to look at weather history for locations and
 graph temperature trends across the years. I started out using simple scripts to call
 the rest services, store data, and create the files that were imported into Excel. It
-quickly got out of control and led to the original GUI.
+quickly got out of control and led to the first generation of weather data. The
+implementation was a full stack application that including both frontend and backend.
+
+Several years later Rust caught my attention. In order to explore Rust I decided  
+to create a port the Python backend and CLI into Rust. Performance of the Rust backend
+was many times faster than the Python version which led me to explore how
+the Python frontend ecosystem could be used with the Rust backend. Thats when I found
+`PyO3` which has led to the current Python frontends.
+
+## Overview
+
+The Python frontends do not directly interact with the historical weather data storage.
+Instead the frontends use a `PyO3` based API to access and update the historical
+weather data. The [py_lib](../rust/weather/py_lib/README.md) project within the Rust
+`weather` workspace defines the API. Using `maturin` a `py_weather_lib` package
+can be created that contains the Python weather data API.
+
 
 ### Current state of the GUI
-The current GUI is mostly a port of the original implementation. The biggest difference
-is it does not implement the backend data store. Instead it uses the `PyO3` bindings to
-call the `Rust` backend which reads and writes weather data history.
+The current GUI is mostly a port of the original implementation. The Python code
+that was used to access weather data storage has been replaced `py_weather_lib`.
 
-It currently lacks functionality to graph weather history for multiple locations. This
-will be added in a future release.
+Historical weather data can be added, reports generated, and graphs created. Currently
+the graphing implementation lacks the ability to graph weather history for multiple
+locations. 
 
 ### Current state of the TUI
-The current TUI can only view weather data history at this point. It is the result of
-using the `textual` framework for about a month. I'm pretty pleased with the framework.
-It is intuitive, has a rich set of widgets, and has a nice modern look. Startup time 
-seems slow to me but once up and running it is fine.
+The TUI is built using the `textual` framework. It has functionality to add and
+report historical weather data. The plan is to expand the TUI to help with bootstrapping
+the weather data storage and add graphing functionality.
 
 ## Installation
 I have mostly been developing with Windows 11 so installation will be based on that

@@ -1,6 +1,5 @@
 mod py_entities;
 mod py_weather_data;
-mod py_history_client;
 
 use pyo3::prelude::*;
 
@@ -27,8 +26,8 @@ fn py_weather_lib(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<py_entities::PyLocationFilter>()?;
     m.add_class::<py_entities::PyLocationFilters>()?;
     m.add_class::<py_entities::PyCityFilter>()?;
+    m.add_class::<py_entities::PyHistoriesFuture>()?;
     m.add_function(wrap_pyfunction!(py_weather_data::create, m)?)?;
     m.add_class::<py_weather_data::PyWeatherData>()?;
-    m.add_class::<py_history_client::PyHistoryClient>()?;
     Ok(())
 }

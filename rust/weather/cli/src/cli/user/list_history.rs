@@ -52,7 +52,7 @@ pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> 
             } else {
                 reports::text::Report::default()
                     .with_title_separator()
-                    .with_date_format("%b-%d-%Y")
+                    // .with_date_format("%b-%d-%Y")
                     .generate(histories)
                     .into_iter()
                     .map(|row| trim_row_end!(row.to_string()))

@@ -1,8 +1,6 @@
 //! The user command 'qc' to query US Cities location information.
-#![allow(unused)]
-
 use crate::cli::{self, err, get_writer, reports::list_states as reports, user::trim_row_end, ReportArgs};
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{ArgMatches, Command};
 use weather_lib::prelude::WeatherData;
 
 /// The query cities command name.

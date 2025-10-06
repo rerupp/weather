@@ -37,7 +37,7 @@ pub fn create(config_file: Option<PathBuf>, dirname: Option<PathBuf>, no_db: boo
 
 /// The weather data API for backend implementations.
 ///
-pub(crate) trait Backend: Send {
+pub(crate) trait Backend: Send + Sync {
     /// Get the weather data configuration.
     ///
     fn get_config(&self) -> &Config;

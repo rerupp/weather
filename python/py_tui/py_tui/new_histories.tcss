@@ -1,0 +1,43 @@
+NewHistories {
+    align: center middle;
+    width: 100%;
+    height: 100%;
+    #dialog {
+        align: center middle;
+        # background: blue 50%;
+        padding-top: 1;
+        padding-bottom: 1;
+        border: wide white 50%;
+        width: 41;
+        height: auto;
+    }
+    #date-selection {
+        padding-top: 1;
+        padding-bottom: 1;
+        width: 39;
+        height: auto;
+        border: solid white 30%;
+        border-title-color: $text-secondary;
+        border-title-style: bold;
+        border-title-align: center;
+        border-subtitle-color: $error;
+        border-subtitle-align: center;
+    }
+    #progress {
+        margin-top: 1;
+    }
+    #buttons {
+        # background: blue 50%;
+        # border: wide white 50%;
+        align: center middle;
+        margin-top: 1;
+        width: 100%;
+        height: auto;
+    }
+    #add {
+        margin-right: 1;
+    }
+    #cancel {
+        margin-left: 1;
+    }
+}

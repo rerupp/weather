@@ -6,7 +6,7 @@ from tkinter.simpledialog import Dialog
 from typing import List, Optional
 
 from dateutil.relativedelta import relativedelta
-from py_weather_lib import PyDateRange, PyHistoryClient, PyLocation, PyLocationFilter, PyLocationFilters
+from py_weather_lib import PyDateRange, PyHistoriesFuture, PyLocation, PyLocationFilter, PyLocationFilters
 
 from .widgets import DateRangeSelector
 from ..config import get_logger
@@ -74,12 +74,16 @@ class AddHistory:
 
     def _get_history(self):
         try:
-            history_client = self._weather_data.backend.get_history_client()
-            history_client.execute(location=self._location, date_range=self._date_range)
-            get_history = GetHistory(self._parent, self._location, history_client)
+            # history_client = self._weather_data.backend.get_history_client()
+            # history_client.execute(location=self._location, date_range=self._date_range)
+            # get_history = GetHistory(self._parent, self._location, history_client)
+            filter = PyLocationFilter(name=self._location.alias)
+            future = self._weather_data.backend.new_daily_histories(filter, dates=self._date_range)
+            get_history = GetHistory(self._parent, self._location, future)
             if not get_history.is_canceled:
                 # the history client won't know there was a server error until you try and get the response
-                daily_histories = history_client.get()
+                # daily_histories = history_client.get()
+                daily_histories = future.get()
                 self._weather_data.backend.add_histories(daily_histories)
                 history_count = len(daily_histories.histories)
                 _info(f'{history_count} histories were added to {self._location.name}.')
@@ -135,8 +139,10 @@ class DateSelector(Dialog):
 
 
 class GetHistory(Dialog):
-    def __init__(self, parent, location: PyLocation, history_client: PyHistoryClient):
-        self._history_client = history_client
+    # def __init__(self, parent, location: PyLocation, history_client: PyHistoryClient):
+    def __init__(self, parent, location: PyLocation, future: PyHistoriesFuture):
+        self._future = future
+        # self._history_client = history_client
         self._location = location
         self._callback_id: Optional[str] = None
         self._progress_step: Optional[tk.DoubleVar] = None
@@ -158,7 +164,8 @@ class GetHistory(Dialog):
         def callback():
             nonlocal direction
             # check if the client received the response
-            if self._history_client.poll():
+            if self._future.is_finished():
+            # if self._history_client.poll():
                 self._is_canceled = False
                 self._callback_id = None
                 self.ok()

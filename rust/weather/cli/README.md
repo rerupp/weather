@@ -21,7 +21,7 @@ Most of the commands support producing report output in the form of plain text, 
 formats. Command line arguments allow the reports to be saved to a file instead of being output  
 to `stdout`.
 
-### Modules with `cli`
+### Modules within `cli`
 
 #### The `admin` module
 

@@ -4,8 +4,8 @@ use super::*;
 use chrono::prelude::{NaiveDate, NaiveDateTime};
 use std::path::PathBuf;
 use weather_lib::prelude::{
-    CityFilter, DailyHistories, DateRange, History, HistoryDates, HistorySummaries, Location, LocationFilter,
-    LocationFilters, State
+    CityFilter, DailyHistories, DateRange, HistoriesFuture, History, HistoryDates, HistorySummaries, Location,
+    LocationFilter, LocationFilters, State,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -245,6 +245,15 @@ impl PyHistory {
     fn __str__(&self) -> String {
         format!("{:?}", self)
     }
+    fn wind_direction_str(&self) -> String {
+        History::wind_direction_str(self.wind_direction).to_string()
+    }
+    fn uv_index_str(&self) -> String {
+        History::uv_index_str(self.uv_index).to_string()
+    }
+    fn moon_phase_str(&self) -> String {
+        History::moon_phase_str(self.moon_phase).to_string()
+    }
 }
 
 /// A locations daily weather history.
@@ -290,23 +299,45 @@ impl PyDailyHistories {
     }
 }
 
-/// The container for a range of dates.
+#[derive(Debug)]
+#[pyclass]
+pub struct PyHistoriesFuture {
+    future: HistoriesFuture,
+}
+impl PyHistoriesFuture {
+    pub fn new(future: HistoriesFuture) -> Self {
+        Self { future }
+    }
+}
+#[pymethods]
+impl PyHistoriesFuture {
+    pub fn is_finished(&self) -> bool {
+        self.future.is_finished()
+    }
+    pub fn get(&self) -> PyResult<PyDailyHistories> {
+        match self.future.get() {
+            Err(error) => system_err!(error),
+            Ok(maybe_histories) => match maybe_histories {
+                None => system_err!("There were no histories returned."),
+                Some(daily_histories) => Ok(PyDailyHistories::from(daily_histories)),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
-#[pyclass(get_all, set_all)]
+#[pyclass]
 pub struct PyDateRange {
-    /// The starting date of the range.
-    pub start: NaiveDate,
-    /// The inclusive end date of the range.
-    pub end: NaiveDate,
+    inner: DateRange,
 }
 impl From<DateRange> for PyDateRange {
     fn from(date_range: DateRange) -> Self {
-        Self { start: date_range.start, end: date_range.end }
+        Self { inner: date_range }
     }
 }
 impl From<PyDateRange> for DateRange {
     fn from(date_range: PyDateRange) -> Self {
-        Self { start: date_range.start, end: date_range.end }
+        Self { start: date_range.inner.start, end: date_range.inner.end }
     }
 }
 #[pymethods]
@@ -314,21 +345,63 @@ impl PyDateRange {
     #[new]
     fn new(start: NaiveDate, end: NaiveDate) -> PyResult<Self> {
         match start > end {
-            true => Err(pyo3::exceptions::PyValueError::new_err("from date greater than to date")),
-            false => Ok(Self { start, end }),
+            true => Err(pyo3::exceptions::PyValueError::new_err("start date is after end date")),
+            false => Ok(Self { inner: DateRange::new(start, end) }),
         }
     }
+    #[getter]
+    fn get_start(&self) -> NaiveDate {
+        self.inner.start
+    }
+    #[setter]
+    fn set_start(&mut self, start: NaiveDate) -> PyResult<()> {
+        match start > self.inner.end {
+            true => Err(pyo3::exceptions::PyValueError::new_err("start date is after end date")),
+            false => {
+                self.inner.start = start;
+                Ok(())
+            }
+        }
+        // self.inner.start = start;
+        // Ok(())
+    }
+    #[getter]
+    fn get_end(&self) -> NaiveDate {
+        self.inner.end
+    }
+    #[setter]
+    fn set_end(&mut self, end: NaiveDate) -> PyResult<()> {
+        match end < self.inner.start {
+            true => Err(pyo3::exceptions::PyValueError::new_err("end date is before start date")),
+            false => {
+                self.inner.end = end;
+                Ok(())
+            }
+        }
+        // self.inner.end = end;
+        // Ok(())
+    }
     fn __str__(&self) -> String {
-        format!("{:?}", self)
+        self.inner.to_string()
     }
     fn __copy__(&self) -> PyDateRange {
-        PyDateRange::new(self.start, self.end).unwrap()
+        // PyDateRange::new(self.inner.start, self.inner.end).unwrap()
+        PyDateRange { inner: self.inner.clone() }
     }
     fn __eq__(&self, other: &Self) -> bool {
-        self.start == other.start && self.end == other.end
+        self.inner.start == other.inner.start && self.inner.end == other.inner.end
     }
-    fn contains(&self, date: NaiveDate) -> PyResult<bool> {
-        Ok(self.start <= date && date <= self.end)
+    fn contains(&self, date: NaiveDate) -> bool {
+        self.inner.contains(&date)
+    }
+    fn is_one_day(&self) -> bool {
+        self.inner.is_one_day()
+    }
+    fn is_one_year(&self) -> bool {
+        self.inner.is_one_year()
+    }
+    fn is_multi_year(&self) -> bool {
+        self.inner.is_multi_year()
     }
 }
 
@@ -385,7 +458,7 @@ impl PyHistorySummaries {
     }
 }
 
-/// The data structure used to get locations..
+/// The data structure used to get locations.
 ///
 #[derive(Clone, Debug, Default)]
 #[pyclass(get_all, set_all)]

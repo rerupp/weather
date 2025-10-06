@@ -42,11 +42,11 @@ as changes are made.
 
 This module contains all the structures used to implement weather data commands.
 
-### The `history_client` module.
+### The `histories_future` module.
 
-This module contains the `HistoryClient` used to get historical weather data. The client
-is built on top of the `reqwest` crate and contains the *Visual Crossing* `Rest` client 
-implementation.
+This module contains the [HistoriesFuture](src/histories_future.rs) that manages collection
+of historical weather data. The *future* uses the `reqwest` crate and contains the *Visual 
+Crossing* `Rest` client implementation.
 
 ### The `weather_data` module.
 

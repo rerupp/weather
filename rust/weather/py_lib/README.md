@@ -10,9 +10,14 @@ that front-end the native weather data library.
 
 Why am I doing this? After the Rust weather data command line tool and
 terminal UI was complete I thought it would be fun to build a GUI.
-Unfortunately the availability of a Rust crate providing a cross-platform
-GUI toolkit is still in the early stages. The original weather data platform
-was written in Python and a GUI was built using tkinter.
+The current state of a Rust based GUI that is a cross-platform GUI toolkit
+is still in the early stages so Python was the choice.
+
+## Current Implementation.
+
+The current release has a full implementation of the Rust `WeatherData` API.
+There is a Python type stub that provides type information for the entire
+`WeatherData` API and entities.
 
 ## Building
 
@@ -39,7 +44,7 @@ follows.
 Using PyO3 to create the weather data bindings was really straight forward
 and easy. Compared to something like a Java JNDI binding PyO3 is trivial.
 The way Rust handles memory management gives you confidence there won't be
-things like memory leaks.
+issues like memory leaks.
 
 In Order to get `PyCharm` to understand the bindings, interface files
 (`.pyi`) were added to the project. The `Python` interface files are straight

@@ -2,6 +2,7 @@ import inspect
 import logging as log
 from datetime import datetime
 from enum import IntFlag
+from time import daylight
 
 import pytz
 from py_weather_lib import (PyDailyHistories, PyDateRange, PyHistory, PyLocationFilter, PyWeatherData)
@@ -232,8 +233,8 @@ class ReportTable(Container):
         if self.categories & ReportCategories.CELESTIAL:
             columns.append(
                 Text("\n".join([
-                    "--------- Celestial ----------",
-                    "Sunrise Sunset   Moon Phase"
+                    "-------------- Celestial ----------------",
+                    "Sunrise Sunset  Daylight     Moon Phase"
                 ]), style=style)
             )
         if self.categories & ReportCategories.SUMMARY:
@@ -258,24 +259,25 @@ class ReportTable(Container):
             chance = "" if history.precipitation_chance is None else f"{history.precipitation_chance:.0%}"
             amount = "" if history.precipitation_amount is None else f"{history.precipitation_amount:.1f}"
             desc = "" if history.precipitation_type is None else history.precipitation_type
-            row.append(Text(f"{chance:>5}  {amount:>5}  {desc}"))
+            row.append(Text(f"{chance:>5}  {amount:>5}  {desc:^12}"))
         if self.categories & ReportCategories.WIND:
             speed = "" if history.wind_speed is None else f"{history.wind_speed:.1f}"
             gust = "" if history.wind_gust is None else f"{history.wind_gust:.1f}"
-            direction = self._wind_bearing(history.wind_direction)
+            direction = history.wind_direction_str()
             row.append(Text(f"{speed:>5}  {gust:>5}   {direction:^3}"))
         if self.categories & ReportCategories.CONDITIONS:
             dew_point = "" if history.dew_point is None else f"{history.dew_point:.1f}"
             cloud_cover = "" if history.cloud_cover is None else f"{history.cloud_cover:.0%}"
             humidity = "" if history.humidity is None else f"{history.humidity:.0%}"
             pressure = "" if history.pressure is None else f"{history.pressure:.1f}"
-            uv_index = self._uv_index(history.uv_index)
+            uv_index = history.uv_index_str()
             row.append(Text(f"{dew_point:>5}   {cloud_cover:>4}   {humidity:>4}    {pressure:>6}  {uv_index:^9}"))
         if self.categories & ReportCategories.CELESTIAL:
             sunrise = "" if history.sunrise is None else self._local_time(history.sunrise, tz)
             sunset = "" if history.sunset is None else self._local_time(history.sunset, tz)
-            moon_phase = self._moon_phase(history.moon_phase)
-            row.append(Text(f" {sunrise}   {sunset} {moon_phase:^15}"))
+            daylight = self._daylight(history.sunrise, history.sunset)
+            moon_phase = history.moon_phase_str()
+            row.append(Text(f" {sunrise}   {sunset}  {daylight:>8}  {moon_phase:^15}"))
         if self.categories & ReportCategories.SUMMARY:
             row.append(Text("" if history.description is None else history.description.strip()))
         return row
@@ -285,80 +287,13 @@ class ReportTable(Container):
         return Style(color=theme_variables["text-primary"])
 
     @staticmethod
-    def _moon_phase(moon_phase: float | None = None) -> str:
-        if 0.0 <= moon_phase <= 0.01:
-            return 'new moon'
-        if 0.01 < moon_phase < 0.24:
-            return 'waxing crescent'
-        if 0.24 <= moon_phase <= 0.26:
-            return 'first quarter'
-        if 0.26 < moon_phase < 0.49:
-            return "waxing gibbous"
-        if 0.49 <= moon_phase <= 0.51:
-            return 'full moon'
-        if 0.51 < moon_phase < 0.74:
-            return 'waning gibbous'
-        if 0.74 <= moon_phase <= 0.76:
-            return 'last quarter'
-        if 0.76 < moon_phase <= 1.0:
-            return 'waning crescent'
-        if moon_phase > 1.0:
-            return 'unknown'
-        return ''
-
-    @staticmethod
-    def _uv_index(uv_index: float | None = None) -> str:
-        if uv_index is None:
-            return ''
-        match round(uv_index):
-            case 1 | 2:
-                return 'low'
-            case 3 | 4 | 5:
-                return 'moderate'
-            case 6 | 7:
-                return "high"
-            case 8 | 9 | 10:
-                return "very high"
-            case _:
-                return "extreme"
-
-    @staticmethod
-    def _wind_bearing(bearing: int | None = None) -> str:
-        if bearing is None:
+    def _daylight(sunrise: datetime, sunset: datetime) -> str:
+        if sunrise is None or sunset is None:
             return ""
-        match int(round((float(bearing) / 22.5))) % 16:
-            case 0:
-                return "N"
-            case 1:
-                return "NNE"
-            case 2:
-                return "NE"
-            case 3:
-                return "ENE"
-            case 4:
-                return "E"
-            case 5:
-                return "ESE"
-            case 6:
-                return "SE"
-            case 7:
-                return "SSE"
-            case 8:
-                return "S"
-            case 9:
-                return "SSW"
-            case 10:
-                return "SW"
-            case 11:
-                return "WSW"
-            case 12:
-                return "W"
-            case 13:
-                return "WNW"
-            case 14:
-                return "NW"
-            case _:
-                return "NNW"
+        seconds = (sunset - sunrise).total_seconds()
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f'{int(hours):02}:{int(minutes):02}:{int(seconds):02}'
 
     @staticmethod
     def _local_time(utc: datetime, tz: timezone) -> str:
@@ -412,7 +347,7 @@ class HistoryReport(Horizontal):
             table.categories = self._categories
 
     def _get_histories(self) -> PyDailyHistories:
-        return self._weather_data.get_daily_history(PyLocationFilter(name=self._alias), self._date_range)
+        return self._weather_data.get_daily_histories(PyLocationFilter(name=self._alias), self._date_range)
 
 
 if __name__ == "__main__":

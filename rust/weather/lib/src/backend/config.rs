@@ -48,7 +48,7 @@ mod config_file {
                 (true, true) => Ok(Config::from(load_path(&path)?)),
                 (true, false) => err!("Configuration name is not a file."),
                 _ => err!("Configuration name not found."),
-            }
+            },
             None => {
                 // try loading the default filename
                 let path = PathBuf::from(DEFAULT_FILENAME);

@@ -7,12 +7,13 @@ been collected by the Rust weather data project. The GUI is built using
 `tkinter`. I'm not a huge fan of the toolkit however it comes with most Python
 installations so it does not need to be built for whatever platform you are on.
 
-The `py_weather_lib` project provides the Python bindings to the Rust backend API. I
-use PyCharm as the IDE and there is an annoying problem with the editor.
-PyCharm does not use the function signature information when generating stubs
-files from native extensions. There is an open issue, PY-54189 in YouTrack,
-that has been around for 3 years. Definitely not a priority for the PyCharm
-team.
+
+The API used by Python is within the Rust [weather](../../rust/weather/README.md)
+workspace. The [py_lib](../../rust/weather/py_lib/README.md) project contains code that
+defines the Python API used to access the Rust [weather_lib](../../rust/weather/lib)
+backend. The `py_lib` project has instructions on how to create the `py_weather_lib`
+package used by the TUI. The `py_weather_lib` includes Python *type stubs* allowing
+an IDE such as PyCharm to understand the `py_weather_lib` API.
 
 ### Third Party Widgets
 
@@ -34,7 +35,7 @@ Installation of the GUI is managed by the `setuptools` toolkit. It will install
 the GUI package dependencies and creates the console command `wgui` that will
 launch the application.
 
-Create the command using the following command:
+Create the command from the current directory using the following command:
 
 ```
 (venv) c: pip install --editable .

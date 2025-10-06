@@ -110,7 +110,7 @@ class HistoryGraph(WeatherView):
             for location_history_dates in self._locations_history_dates:
                 data_criteria = PyLocationFilter(name=location_history_dates.location.alias)
                 locations_daily_histories.append(
-                    self._weather_data.backend.get_daily_history(data_criteria, date_range)
+                    self._weather_data.backend.get_daily_histories(data_criteria, date_range)
                 )
 
             # make sure the primary location daily histories is first

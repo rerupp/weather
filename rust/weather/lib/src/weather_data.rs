@@ -2,11 +2,12 @@
 use crate::{
     backend::{create, Backend},
     entities::{
-        DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter, LocationFilters,
-        State, CityFilter,
+        CityFilter, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter,
+        LocationFilters, State,
     },
-    history_client::HistoryClient,
-    location_filters, Result,
+    histories_future::{self, HistoriesFuture},
+    location_filters,
+    Result,
 };
 use std::path::PathBuf;
 
@@ -36,10 +37,21 @@ impl WeatherData {
         self.0.add_daily_histories(daily_histories)
     }
 
-    /// Get the client that retrieves weather history for a location.
+    /// Get weather data history for a location.
     ///
-    pub fn get_history_client(&self) -> Result<Box<dyn HistoryClient>> {
-        crate::history_client::create_history_client(self.0.get_config())
+    /// # Arguments
+    ///
+    /// * `filter` identifies the location.
+    /// * `dates` determines which daily histories to get.
+    ///
+    pub fn new_daily_histories(&self, filter: LocationFilter, dates: DateRange) -> Result<HistoriesFuture> {
+        // get the locations existing history dates
+        let mut history_dates = self.0.get_history_dates(location_filters!(filter))?;
+        if history_dates.len() > 1 {
+            Err("More than 1 location was found.")?;
+        }
+        let location_history_dates = history_dates.pop().unwrap();
+        histories_future::get(dates, location_history_dates, self.0.get_config())
     }
 
     /// Get daily weather history for a location.
@@ -51,7 +63,7 @@ impl WeatherData {
     /// * `filter` identifies the location.
     /// * `history_range` covers the history dates returned.
     ///
-    pub fn get_daily_history(&self, filter: LocationFilter, history_range: DateRange) -> Result<DailyHistories> {
+    pub fn get_daily_histories(&self, filter: LocationFilter, history_range: DateRange) -> Result<DailyHistories> {
         crate::log_elapsed_time!(info, "get_daily_history");
         self.0.get_daily_histories(location_filters![filter], history_range)
     }
@@ -112,7 +124,7 @@ impl WeatherData {
     }
 
     /// Get the state metadata for US Cities.
-    /// 
+    ///
     pub fn get_states(&self) -> Result<Vec<State>> {
         crate::log_elapsed_time!(info, "get_states");
         self.0.get_states()

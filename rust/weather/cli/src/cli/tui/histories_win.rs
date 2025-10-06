@@ -64,7 +64,8 @@ impl DialogWindow for HistoriesWindow {
         self.report.take();
         match self.weather_data.get_history_dates(location_filters![]) {
             Ok(history_dates) => {
-                let report = reports::text::Report::default().with_date_format("%b-%d-%Y").generate(history_dates);
+                // let report = reports::text::Report::default().with_date_format("%b-%d-%Y").generate(history_dates);
+                let report = reports::text::Report::default().generate(history_dates);
                 self.report.replace(ReportView::new(report, None).with_show_selected(true));
                 Ok(())
             }

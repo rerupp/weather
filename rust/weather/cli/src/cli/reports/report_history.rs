@@ -37,6 +37,7 @@ pub mod text {
         date_time::{fmt_date, get_tz_ts},
         fmt::fmt_float,
     };
+    use weather_lib::prelude::History;
 
     const DEFAULT_DATE_FORMAT: &'static str = "%Y-%m-%d";
 
@@ -181,53 +182,20 @@ pub mod text {
                 if self.report_selector.conditions {
                     row.push(toolslib::text!(fmt_float(&history.wind_speed, 1)));
                     row.push(toolslib::text!(fmt_float(&history.wind_gust, 1)));
-                    row.push(toolslib::text!(fmt_wind_bearing(&history.wind_direction)));
+                    row.push(toolslib::text!(History::wind_direction_str(history.wind_direction)));
                     row.push(toolslib::text!(fmt_float(&history.pressure, 1)));
-                    row.push(toolslib::text!(fmt_uv_index(&history.uv_index)));
+                    row.push(toolslib::text!(History::uv_index_str(history.uv_index)));
                 }
                 // if self.summary {
                 if self.report_selector.summary {
                     row.push(toolslib::text!(fmt_hhmm(&history.sunrise, &tz)));
                     row.push(toolslib::text!(fmt_hhmm(&history.sunset, &tz)));
-                    row.push(toolslib::text!(fmt_moon_phase(&history.moon_phase)));
+                    row.push(toolslib::text!(History::moon_phase_str(history.moon_phase)));
                     row.push(toolslib::text!(history.description.as_ref().map_or(Default::default(), |s| s.as_str())));
                 }
                 report.add_row(row);
             }
             report
-        }
-    }
-
-    /// Returns a compass bearing as a human readable direction.
-    ///
-    /// The four cardinal points on a compass are subdivided into a finer grained
-    /// direction strings as shown below:
-    ///
-    /// ```
-    /// N NNE NE ENE
-    /// E ESE SE SSE
-    /// S SSW SW WSW
-    /// W WNW NW NNW
-    /// ```
-    ///
-    /// There is a window around the absolute direction to determine the bearing string.
-    /// As an example any bearing between 348.75 degrees and 11.25 degrees will be returned
-    /// as a `N` bearing string.
-    ///
-    /// If the option is `None` an empty string will be returned.
-    ///
-    /// # Arguments
-    ///
-    /// * `bearing_option` - the bearing that will be converter to a string.
-    ///
-    fn fmt_wind_bearing(bearing_option: &Option<i64>) -> &'static str {
-        if let Some(bearing) = bearing_option {
-            static BEARINGS: [&'static str; 16] =
-                ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-            let index = ((*bearing as f64 / 22.5) + 0.5) as usize % 16;
-            BEARINGS[index]
-        } else {
-            Default::default()
         }
     }
 
@@ -279,81 +247,6 @@ pub mod text {
         date_time.map_or(Default::default(), |dt| get_tz_ts(dt.and_utc().timestamp(), tz).format("%H:%M").to_string())
     }
 
-    /// Returns a UV index as a human readable string.
-    ///
-    /// The possible UV index strings are:
-    ///
-    /// | UV Index | Description |
-    /// | :----: | :----: |
-    /// | 1-2 | low |
-    /// | 3-5 | moderate |
-    /// | 6-7 | high |
-    /// | 8-10 | very high |
-    /// | 11+ | extreme |
-    ///
-    /// If the option is `None` or the value 0, an empty string will be returned.
-    ///
-    fn fmt_uv_index(option: &Option<f64>) -> &'static str {
-        let mut uv_index = "";
-        if let Some(value) = option {
-            let value = value.round() as i64;
-            if value > 0 {
-                uv_index = match value {
-                    1 | 2 => "low",
-                    3 | 4 | 5 => "moderate",
-                    6 | 7 => "high",
-                    8 | 9 | 10 => "very high",
-                    _ => "extreme",
-                };
-            }
-        }
-        uv_index
-    }
-
-    /// Returns moon phase as a human readable string.
-    ///
-    /// The possible moon phase indicators are:
-    ///
-    /// | Moon Phase | Description |
-    /// | :----: | :----: |
-    /// | 0 | new moon |
-    /// | 0-0.25 | waxing crescent |
-    /// | 0.25 | first quarter |
-    /// | 0.25-0.5 | waxing gibbous |
-    /// | 0.5 | full moon |
-    /// | 0.5-0.75 | waning gibbous |
-    /// | 0.75 | last quarter |
-    /// | 0.75-1.0 | waning crescent |
-    ///
-    /// If the option is `None` an empty string will be returned.
-    ///
-    fn fmt_moon_phase(option: &Option<f64>) -> &'static str {
-        let mut moon_phase = "";
-        if let Some(value) = option {
-            let phase = *value;
-            moon_phase = if phase >= 0.0 && phase <= 0.01 {
-                "new moon"
-            } else if phase > 0.01 && phase < 0.24 {
-                "waxing crescent"
-            } else if phase >= 0.24 && phase <= 0.26 {
-                "first quarter"
-            } else if phase > 0.26 && phase < 0.49 {
-                "waxing gibbous"
-            } else if phase >= 0.49 && phase <= 0.51 {
-                "full moon"
-            } else if phase > 0.51 && phase < 0.74 {
-                "waning gibbous"
-            } else if phase >= 0.74 && phase <= 0.76 {
-                "last quarter"
-            } else if phase > 0.76 && phase <= 1.0 {
-                "waning crescent"
-            } else {
-                "unknown"
-            };
-        }
-        moon_phase
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -365,61 +258,6 @@ pub mod text {
             assert_eq!(fmt_hhmm(&None, &tz), "");
             let date_time = NaiveDateTime::new(get_date(2023, 9, 23), get_time(22, 22, 22));
             assert_eq!(fmt_hhmm(&Some(date_time), &tz), "15:22");
-        }
-
-        #[test]
-        fn wind_bearing() {
-            for bearing in 0..=11 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "N");
-            }
-            for bearing in 12..=33 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "NNE");
-            }
-            for bearing in 34..=56 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "NE");
-            }
-            for bearing in 57..=78 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "ENE");
-            }
-            for bearing in 79..=101 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "E");
-            }
-            for bearing in 102..=123 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "ESE");
-            }
-            for bearing in 124..=146 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "SE");
-            }
-            for bearing in 147..=168 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "SSE");
-            }
-            for bearing in 169..=191 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "S");
-            }
-            for bearing in 192..=213 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "SSW");
-            }
-            for bearing in 214..=236 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "SW");
-            }
-            for bearing in 237..=258 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "WSW");
-            }
-            for bearing in 259..=281 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "W");
-            }
-            for bearing in 282..=303 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "WNW");
-            }
-            for bearing in 304..=326 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "NW");
-            }
-            for bearing in 327..=348 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "NNW");
-            }
-            for bearing in 349..=361 {
-                assert_eq!(fmt_wind_bearing(&Some(bearing)), "N");
-            }
         }
 
         #[test]
@@ -437,46 +275,6 @@ pub mod text {
             assert_eq!(fmt_temperature(&Some(50.95)), " 51.0");
             assert_eq!(fmt_temperature(&Some(99.9)), " 99.9");
             assert_eq!(fmt_temperature(&Some(-29.9)), "-29.9");
-        }
-
-        #[test]
-        fn uv_index() {
-            assert_eq!(fmt_uv_index(&None), "");
-            assert_eq!(fmt_uv_index(&Some(0.0)), "");
-            assert_eq!(fmt_uv_index(&Some(1.0)), "low");
-            assert_eq!(fmt_uv_index(&Some(2.0)), "low");
-            assert_eq!(fmt_uv_index(&Some(3.0)), "moderate");
-            assert_eq!(fmt_uv_index(&Some(4.0)), "moderate");
-            assert_eq!(fmt_uv_index(&Some(5.0)), "moderate");
-            assert_eq!(fmt_uv_index(&Some(6.0)), "high");
-            assert_eq!(fmt_uv_index(&Some(7.0)), "high");
-            assert_eq!(fmt_uv_index(&Some(8.0)), "very high");
-            assert_eq!(fmt_uv_index(&Some(9.0)), "very high");
-            assert_eq!(fmt_uv_index(&Some(10.0)), "very high");
-            assert_eq!(fmt_uv_index(&Some(11.0)), "extreme");
-            assert_eq!(fmt_uv_index(&Some(12.0)), "extreme");
-        }
-
-        #[test]
-        fn moon_phase() {
-            assert_eq!(fmt_moon_phase(&None), "");
-            assert_eq!(fmt_moon_phase(&Some(0.0)), "new moon");
-            assert_eq!(fmt_moon_phase(&Some(0.01)), "new moon");
-            assert_eq!(fmt_moon_phase(&Some(0.011)), "waxing crescent");
-            assert_eq!(fmt_moon_phase(&Some(0.239)), "waxing crescent");
-            assert_eq!(fmt_moon_phase(&Some(0.24)), "first quarter");
-            assert_eq!(fmt_moon_phase(&Some(0.26)), "first quarter");
-            assert_eq!(fmt_moon_phase(&Some(0.261)), "waxing gibbous");
-            assert_eq!(fmt_moon_phase(&Some(0.489)), "waxing gibbous");
-            assert_eq!(fmt_moon_phase(&Some(0.49)), "full moon");
-            assert_eq!(fmt_moon_phase(&Some(0.51)), "full moon");
-            assert_eq!(fmt_moon_phase(&Some(0.511)), "waning gibbous");
-            assert_eq!(fmt_moon_phase(&Some(0.739)), "waning gibbous");
-            assert_eq!(fmt_moon_phase(&Some(0.74)), "last quarter");
-            assert_eq!(fmt_moon_phase(&Some(0.76)), "last quarter");
-            assert_eq!(fmt_moon_phase(&Some(0.761)), "waning crescent");
-            assert_eq!(fmt_moon_phase(&Some(1.0)), "waning crescent");
-            assert_eq!(fmt_moon_phase(&Some(1.001)), "unknown");
         }
     }
 }

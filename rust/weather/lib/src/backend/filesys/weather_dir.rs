@@ -1,10 +1,8 @@
-#![allow(unused)]
-
 use crate::{
     backend::{filesys::WeatherFile, Config},
     Error, Result,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// The [crate::backend::filesys::WeatherDir] error builder.
 macro_rules! error {
@@ -76,10 +74,6 @@ impl WeatherDir {
     pub fn archive(&self, alias: &str) -> WeatherFile {
         let archive_name = self.0.join(alias).with_extension("zip");
         WeatherFile::new(archive_name)
-    }
-    /// Get the weather directory path.
-    pub fn path(&self) -> &Path {
-        self.0.as_path()
     }
 }
 

@@ -3,7 +3,7 @@
 use super::*;
 
 use py_entities::*;
-use py_history_client::PyHistoryClient;
+// use py_history_client::PyHistoryClient;
 use std::sync::OnceLock;
 use toolslib::{fmt::commafy, logs, stopwatch::StopWatch};
 use weather_lib::prelude::WeatherData;
@@ -90,11 +90,18 @@ impl PyWeatherData {
             Err(error) => system_err!(error),
         }
     }
-    /// Get the client that retrieves weather history for a location.
+    /// Get new daily weather histories for a location.
     ///
-    pub fn get_history_client(&self) -> PyResult<PyHistoryClient> {
-        match self.0.get_history_client() {
-            Ok(history_client) => Ok(PyHistoryClient::new(history_client)),
+    /// It is an error if more than 1 location is found.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` identifies the location.
+    /// * `dates` determines which daily histories to get.
+    ///
+    pub fn new_daily_histories(&self, filter: PyLocationFilter, dates: PyDateRange) -> PyResult<PyHistoriesFuture> {
+        match self.0.new_daily_histories(filter.into(), dates.into()) {
+            Ok(future) => Ok(PyHistoriesFuture::new(future)),
             Err(error) => system_err!(error),
         }
     }
@@ -107,13 +114,13 @@ impl PyWeatherData {
     /// * `filter` identifies the location.
     /// * `history_range` covers the history dates returned.
     ///
-    pub fn get_daily_history(
+    pub fn get_daily_histories(
         &self,
         filter: PyLocationFilter,
         history_range: PyDateRange,
     ) -> PyResult<PyDailyHistories> {
         elapsed_timer!("get_daily_history");
-        match self.0.get_daily_history(filter.into(), history_range.into()) {
+        match self.0.get_daily_histories(filter.into(), history_range.into()) {
             Ok(daily_histories) => Ok(daily_histories.into()),
             Err(error) => system_err!(error),
         }

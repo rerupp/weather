@@ -59,6 +59,6 @@ class HistoryApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Footer()
-        with VerticalScroll():
+        with VerticalScroll(id="app-locations"):
             for history_dates in self._weather_data.get_history_dates(PyLocationFilters([])):
                 yield HistoryView(self._weather_data, history_dates)

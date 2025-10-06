@@ -12,7 +12,8 @@ use termui_lib::prelude::{
     ControlGroup, ControlResult, DateEditor, DialogResult, DialogWindow, EditControl, EditField, EditFieldGroup, Label,
     MessageStyle, ProgressDialog,
 };
-use weather_lib::prelude::{DateRange, HistoryClient, Location, WeatherData};
+use weather_lib::location_filter;
+use weather_lib::prelude::{DateRange, HistoriesFuture, Location, WeatherData};
 
 /// The dialog that manages adding weather data history to a location.
 ///
@@ -23,8 +24,8 @@ pub struct AddHistory {
     history_criteria: RefCell<ButtonDialog<HistoryCriteria>>,
     /// The dialog that actually fetches and adds history.
     history_progress: RefCell<Option<ProgressDialog>>,
-    /// The history client used to download weather data.
-    history_client: Box<dyn HistoryClient>,
+    /// The future returned from retrieving histories
+    histories_future: RefCell<Option<HistoriesFuture>>,
     /// The weather data history API that will be used.
     weather_data: Rc<WeatherData>,
 }
@@ -52,7 +53,7 @@ impl AddHistory {
             location: location.clone(),
             history_criteria: RefCell::new(ButtonDialog::new(buttons, HistoryCriteria::new())),
             history_progress: RefCell::default(),
-            history_client: weather_data.get_history_client()?,
+            histories_future: Default::default(),
             weather_data,
         })
     }
@@ -90,13 +91,18 @@ impl AddHistory {
                                     history_criteria.set_message(MessageStyle::Error, parse_error);
                                 }
                                 Ok(date_range) => {
-                                    let description = format!("Downloading weather history for {}", self.location.name);
-                                    history_progress.replace(ProgressDialog::new(description));
-                                    if let Err(error) = self.history_client.execute(&self.location, &date_range) {
-                                        // this will only happen if the add history state is messed up
-                                        debug_assert!(false, "{}\n{:?}", error, self)
+                                    let filter = location_filter!(name = &self.location.alias);
+                                    match self.weather_data.new_daily_histories(filter, date_range) {
+                                        Ok(future) => {
+                                            history_progress.replace(ProgressDialog::new(format!(
+                                                "Downloading weather history for {}",
+                                                self.location.name
+                                            )));
+                                            self.histories_future.replace(Some(future));
+                                            break_event!(DialogResult::Poll(Some(20)))?
+                                        }
+                                        Err(error) => break_event!(DialogResult::Error(error.to_string()))?,
                                     }
-                                    break_event!(DialogResult::Poll(Some(20)))?;
                                 }
                             }
                         }
@@ -119,32 +125,36 @@ impl AddHistory {
     pub fn render(&self, area: Rect, buffer: &mut Buffer) -> Option<Position> {
         log_render!("AddHistory");
         let mut position = self.history_criteria.borrow().render(area, buffer);
-        if self.history_progress.borrow().is_some() {
+        // take the future in case it has completed or there is an error
+        if let Some(future) = self.histories_future.take() {
             // remove the current position since the progress dialog is running
             position.take();
-            match self.history_client.poll().unwrap() {
+            match future.is_finished() {
                 false => {
-                    self.history_progress.borrow().as_ref().unwrap().render(area, buffer);
+                    self.histories_future.replace(Some(future));
                 }
                 true => {
                     self.history_progress.take();
                     let dialog = &mut *self.history_criteria.borrow_mut();
                     // mark the window as complete and set the message about what happened
                     dialog.win_mut().set_active(false);
-                    match self.history_client.get() {
+                    match future.get() {
                         Err(error) => dialog.set_message(MessageStyle::Error, error),
-                        Ok(daily_histories) => {
-                            let download_count = daily_histories.histories.len();
-                            match self.weather_data.add_histories(daily_histories) {
-                                Err(error) => dialog.set_message(MessageStyle::Error, error),
-                                Ok(add_count) => {
-                                    dialog.set_message(
-                                        MessageStyle::Normal,
-                                        format!("Histories downloaded {}, added {}.", download_count, add_count),
-                                    );
+                        Ok(daily_histories) => match daily_histories {
+                            None => dialog.set_message(MessageStyle::Warning, "There were no histories!"),
+                            Some(daily_histories) => {
+                                let download_count = daily_histories.histories.len();
+                                match self.weather_data.add_histories(daily_histories) {
+                                    Err(error) => dialog.set_message(MessageStyle::Error, error),
+                                    Ok(add_count) => {
+                                        dialog.set_message(
+                                            MessageStyle::Normal,
+                                            format!("Histories downloaded {}, added {}.", download_count, add_count),
+                                        );
+                                    }
                                 }
                             }
-                        }
+                        },
                     }
                 }
             }
