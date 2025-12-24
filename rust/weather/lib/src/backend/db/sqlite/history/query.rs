@@ -2,7 +2,7 @@
 //!
 
 use super::{locations, metadata, prepare_sql, query_rows, SqlResult};
-use crate::entities::{DateRanges, HistoryDates, LocationFilters};
+use crate::entities::{DateRanges, HistoryDates, LocationFilter};
 use chrono::NaiveDate;
 use rusqlite::{named_params, Connection, Row};
 use sql_query_builder as sql;
@@ -29,7 +29,7 @@ macro_rules! err {
 /// * `conn` is the database connection that will be used.
 /// * `criteria` is the location data criteria.
 ///
-pub fn history_dates(conn: &Connection, filters: LocationFilters) -> crate::Result<Vec<HistoryDates>> {
+pub fn history_dates(conn: &Connection, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistoryDates>> {
     // collect up the locations that match the criteria
     let locations = locations::get(conn, filters)?;
 

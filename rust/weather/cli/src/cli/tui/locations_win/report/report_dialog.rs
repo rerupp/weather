@@ -12,10 +12,7 @@ use termui_lib::prelude::{
     beep, break_event, log_key_pressed, log_render, Button, ButtonBar, ButtonDialog, DialogResult, DialogWindow,
     MessageStyle, ReportView,
 };
-use weather_lib::{
-    location_filter,
-    prelude::{Location, WeatherData},
-};
+use weather_lib::prelude::{Location, LocationFilter, WeatherData};
 
 /// The criteria button identifier.
 ///
@@ -91,7 +88,7 @@ impl ReportDialog {
             }
             Ok(date_range) => {
                 self.criteria.set_active(false);
-                let filter = location_filter!(name = &self.location_name);
+                let filter = LocationFilter::name(&self.location_name);
                 match self.weather_data.get_daily_histories(filter, date_range) {
                     Err(error_message) => {
                         let message = format!("Failed to get daily history ({}).", error_message);

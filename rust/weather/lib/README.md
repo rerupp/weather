@@ -1,53 +1,53 @@
-# `weather_lib` Library
+# weather_lib Library
 
-The `weather_lib` library implements the historical weather data API and administration
-of the data storage.
+This library contains the backend implementation for historical weather data.
 
 ## Overview
 
-The `WeatherData` structure contains the public facing API to access historical weather data. The 
-`Backend` is used by the `WeatherData` API to read and write historical weather data. There are
-currently two (2) implementations of the `Backend`. One is file system based using ZIP archives 
-and the other is a database implementation built using `SQlite3`.
+There are two entry points into the library.
+* [WeatherAdmin](src/admin.rs) is the API used to manage historical weather data.
+* [WeatherData](src/weather_data.rs) is the API used to view and update historical weather data.
 
 ## Module Overview
 
-### The `admin` module.
+### The [admin](src/admin.rs) module.
 
-This module contains the administrative API `WeatherAdmin` and the entities specific 
-to weather data administration.
+This module implements the [WeatherAdmin](src/admin.rs) API. It also contains the entities 
+specific to weather data administration.
 
-### The `backend` Module
+### The [backend](src/backend.rs) Module
 
-The `backend` module defines the `Backend` trait. Within the module are the filesystem and 
-database implementations. 
+Internally [WeatherData](src/weather_data.rs) uses a [Backend](src/backend.rs) trait to access
+weather data. This module defines that trait and exposes the API used to create implementations.
 
-Regardless of the implementation historical weather data is always stored into `Zip`
-archives. This allows data to be easily backed up and reloaded as changes are made to the data 
-model.
+#### The [filesys](src/backend/filesys.rs) module.
 
-#### The `backend::filesys` module.
+This module contains a file based implementation of the [Backend](src/backend.rs) trait.
+*JSON* document files are used to store properties and metadata such as location information
+and configuration data. *Zip* archives are used to store a locations weather history.
 
-This module contains support for the files used in weather data. It implements `Zip` file
-archive reading and writing along with the weather locations `JSON` document. It also contains
-operating system independent implementations for weather data directories and files.
+#### The [sqlite](src/backend/db/sqlite.rs) module.
 
-#### The `backend::db` module.
+This module contains a database implementation of the [Backend](src/backend.rs) trait. It uses
+the [filesys](src/backend/filesys.rs) implementation as a backing store to allow data to be
+easily backed up and the database rebuilt as required.
 
-This module contains support for the database implementation of weather data history. It
-also uses the `filesys` module to update the weather history archives and locations document
-as changes are made.
+### The [configuration](src/configuration.rs) module.
 
-### The `entities` module.
+This module provides the API to access and update weather data configuration properties.
 
-This module contains all the structures used to implement weather data commands.
+### The [entities](src/entities.rs) module.
 
-### The `histories_future` module.
+This module contains all the datat structures used by the weather data API.
 
-This module contains the [HistoriesFuture](src/histories_future.rs) that manages collection
-of historical weather data. The *future* uses the `reqwest` crate and contains the *Visual 
-Crossing* `Rest` client implementation.
+### The [histories_future](src/histories_future.rs) module.
 
-### The `weather_data` module.
+This module contains the API that manages collecting historical weather data. It is a thread 
+based `future` that can be queried for completion and data. Access to the Visual 
+Crossing timeline service and conversion of the response is handled by the background 
+thread.
 
-This module contains the `WeatherData` API.
+### The [weather_data](src/weather_data.rs) module.
+
+This module implements the [WeatherData](src/weather_data.rs) API. It also exposes the API used 
+to create instances of the API.

@@ -2,85 +2,86 @@
 
 use super::sqlite;
 use crate::{
-    admin::{DbDetails, UsCityDetails},
+    admin_prelude::{DbDetails, DbProblems, UsCityDetails},
     backend::filesys::WeatherDir,
-    entities::LocationFilters,
+    prelude::LocationFilter,
 };
-use std::path::PathBuf;
+use std::rc::Rc;
 
-/// Initialize the database schema.
+/// Create the database administration API.
 ///
 /// # Arguments
 ///
 /// * `weather_dir` is the weather data directory.
-/// * `db_mode` is the database configuration to initialize.
-/// * `drop` when true will delete the schema before initialization.
-/// * `load` when true will load weather data into the database.
 ///
-pub fn init_db(weather_dir: &WeatherDir, drop: bool, load: bool, threads: usize) -> crate::Result<()> {
-    sqlite::admin::init_db(weather_dir, drop, load, threads)
+pub(in crate::backend) fn create_db_admin(weather_dir: Rc<WeatherDir>) -> impl DbAdmin {
+    sqlite::admin::SQLiteAdmin::new(weather_dir)
 }
 
-/// Deletes the current database schema.
+/// The database administration API.
 ///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-/// * `delete` when true will remove the database file.
-///
-pub fn drop_db(weather_dir: &WeatherDir, delete: bool) -> crate::Result<()> {
-    sqlite::admin::drop_db(weather_dir, delete)
-}
+pub(crate) trait DbAdmin {
+    /// Initialize the weather history database schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `update` when true will reapply the schema update regardless if it already appears to exist.
+    ///
+    fn history_init(&self, update: bool) -> crate::Result<bool>;
 
-/// Provide information about the database.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-///
-pub fn db_details(weather_dir: &WeatherDir) -> crate::Result<Option<DbDetails>> {
-    sqlite::admin::db_details(weather_dir)
-}
+    /// Deletes the current database schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `delete` when true will remove the database file.
+    ///
+    fn history_drop(&self, delete: bool) -> crate::Result<()>;
 
-/// Reload metadata and history for locations.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-/// * `filters` identifies the locations that will be reloaded.
-///
-pub fn reload(weather_dir: &WeatherDir, filters: LocationFilters) -> crate::Result<Vec<String>> {
-    sqlite::admin::reload(weather_dir, filters)
-}
+    /// Bulk load locations weather history into a pristine database.
+    ///
+    /// # Arguments
+    ///
+    /// * `threads` determines how many threads can be used by the loader.
+    ///
+    fn history_load(&self, threads: usize) -> crate::Result<()>;
 
-/// Creates the database counting the US Cities `CSV` file.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-/// *`csv_file` is the US Cities `CSV` file to load.
-///
-// todo: change the signature to take a str
-pub fn uscities_load(weather_dir: &WeatherDir, csv_file: &PathBuf) -> crate::Result<usize> {
-    sqlite::admin::uscities_load(weather_dir, csv_file.display().to_string().as_str())
-}
+    /// Return information about the weather history database.
+    ///
+    fn history_details(&self) -> crate::Result<Option<DbDetails>>;
 
-/// Delete the US Cities database.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-///
-pub fn uscities_delete(weather_dir: &WeatherDir) -> crate::Result<()> {
-    sqlite::admin::uscities_delete(weather_dir)
-}
+    /// Reload metadata and history for locations.
+    ///
+    /// # Arguments
+    ///
+    /// * `repair` when true will try to fix problems that were found.
+    ///
+    fn history_check(&self, repair: bool) -> Option<DbProblems>;
 
-/// Show information about the US Cities database.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather data directory.
-///
-pub fn uscities_info(weather_dir: &WeatherDir) -> crate::Result<UsCityDetails> {
-    sqlite::admin::uscities_info(weather_dir)
+    /// Reload metadata and history for locations.
+    ///
+    /// # Arguments
+    ///
+    /// * `filters` identifies the locations that will be reloaded.
+    ///
+    fn history_reload(&self, filters: Vec<LocationFilter>) -> crate::Result<usize>;
+
+    /// Initialize the US cities database.
+    ///
+    fn us_cities_init(&self) -> crate::Result<()>;
+
+    /// Delete the US Cities database.
+    ///
+    fn us_cities_delete(&self) -> crate::Result<()>;
+
+    /// Load the US cities database.
+    ///
+    /// # Arguments
+    ///
+    /// * `uscities_path` is the filename that contains the US cities metadata.
+    ///
+    fn us_cities_load(&self, uscities_path: &str) -> crate::Result<usize>;
+
+    /// Retrieve information about the US Cities database.
+    ///
+    fn us_cities_details(&self) -> crate::Result<UsCityDetails>;
 }

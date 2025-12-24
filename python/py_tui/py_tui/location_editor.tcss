@@ -1,0 +1,42 @@
+LocationEditor {
+    align: center middle;
+    height: 100%;
+    width: 100%;
+    #location-editor {
+        width: auto;
+        height: auto;
+        padding: 1;
+        border: solid white 50%;
+        border-title-align: center;
+        border-title-color: $text-secondary;
+        border-subtitle-color: $error;
+        border-subtitle-align: center;
+        #buttons {
+            align: center middle;
+            margin-top: 1;
+            width: 100%;
+            height: auto;
+        }
+        #ok {
+            margin-right: 1;
+            color: $success;
+        }
+        #cancel {
+            margin-left: 1;
+            color: $warning;
+        }
+        .location-property-required {
+            color: $error;
+        }
+        LocationProperties {
+            width: 45;
+            height: auto;
+            Label {
+                color: $text-secondary;
+            }
+            .location-property-readonly {
+                color: $text-muted;
+            }
+        }
+    }
+}

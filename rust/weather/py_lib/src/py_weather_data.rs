@@ -100,7 +100,7 @@ impl PyWeatherData {
     /// * `dates` determines which daily histories to get.
     ///
     pub fn new_daily_histories(&self, filter: PyLocationFilter, dates: PyDateRange) -> PyResult<PyHistoriesFuture> {
-        match self.0.new_daily_histories(filter.into(), dates.into()) {
+        match self.0.fetch_daily_histories(filter.into(), dates.into()) {
             Ok(future) => Ok(PyHistoriesFuture::new(future)),
             Err(error) => system_err!(error),
         }
@@ -182,7 +182,7 @@ impl PyWeatherData {
     ///
     /// # Arguments
     ///
-    /// - `filter` is used to select cities and limit how many are returned as a location..
+    /// - `filter` is used to select cities and limit how many are returned as a location.
     ///
     pub fn search_locations(&self, filter: PyCityFilter) -> PyResult<Vec<PyLocation>> {
         elapsed_timer!("search_locations");

@@ -73,17 +73,18 @@ mod entities;
 // mod history_client;
 
 mod admin;
+mod configuration;
 mod histories_future;
 
 /// The public weather data API.
 pub mod prelude {
     pub use crate::{
+        configuration::Configuration,
         entities::{
-            DailyHistories, DateRange, DateRanges, History, HistoryDates, HistorySummaries, HistorySummary, Location,
-            LocationFilter, LocationFilters, State, CityFilter,
+            CityFilter, DailyHistories, DateRange, DateRanges, History, HistoryDates, HistorySummaries, HistorySummary,
+            Location, LocationFilter, State,
         },
-        histories_future::{HistoriesFuture},
-        location_filter, location_filters,
+        histories_future::HistoriesFuture,
         weather_data::{create_weather_data, WeatherData},
     };
 }
@@ -91,7 +92,11 @@ pub mod prelude {
 /// The public administration weather data API.
 pub mod admin_prelude {
     pub use crate::admin::{
-        create_weather_admin, Components, DbDetails, FilesysDetails, LocationDetails, UsCityDetails, WeatherAdmin,
+        entities::{
+            Components, DbDetails, DbHistoryProblems, DbLocationProblems, DbProblems, FilesysDetails,
+            FilesysDocumentProblem, FilesysLocationProblem, FilesysProblems, LocationDetails, UsCityDetails,
+        },
+        WeatherAdmin,
     };
 }
 
@@ -101,7 +106,7 @@ struct LogElapsedTime {
     log_level: log::Level,
 }
 impl LogElapsedTime {
-    pub fn new(description: &str, log_level: Option<log::Level>) -> Self {
+    pub fn new(description: impl ToString, log_level: Option<log::Level>) -> Self {
         Self {
             description: description.to_string(),
             start: std::time::Instant::now(),

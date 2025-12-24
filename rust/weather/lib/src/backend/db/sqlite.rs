@@ -7,16 +7,19 @@ mod metadata;
 // you need to expose this for filesys right now.
 pub mod us_cities;
 
-use super::LocationFilters;
 use crate::{
     backend::{
         filesys::{WeatherDir, WeatherFile},
-        Backend, Config,
+        Backend,
     },
-    entities::{DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, State, CityFilter},
+    configuration::Configuration,
+    entities::{
+        CityFilter, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter, State,
+    },
 };
+use std::sync::Arc;
 
-/// The result of some rusqlite function.
+/// The result of a rusqlite function.
 type SqlResult<T> = Result<T, rusqlite::Error>;
 
 /// The name of the database
@@ -44,7 +47,9 @@ use err;
 ///
 /// * `optional_file` is the database file, if `None` an in-memory database will be used.
 ///
-pub(in crate::backend::db) fn db_connection(optional_file: Option<WeatherFile>) -> crate::Result<rusqlite::Connection> {
+pub(in crate::backend::db::sqlite) fn db_connection(
+    optional_file: Option<&WeatherFile>,
+) -> crate::Result<rusqlite::Connection> {
     match optional_file {
         Some(file) => match rusqlite::Connection::open(file.to_string()) {
             Ok(conn) => Ok(conn),
@@ -60,7 +65,7 @@ pub(in crate::backend::db) fn db_connection(optional_file: Option<WeatherFile>) 
 /// A helper to create a database connection.
 macro_rules! db_conn {
     ($weather_dir:expr) => {
-        $crate::backend::db::sqlite::db_connection(Some($weather_dir.file(crate::backend::db::sqlite::DB_FILENAME)))
+        $crate::backend::db::sqlite::db_connection(Some(&$weather_dir.file(crate::backend::db::sqlite::DB_FILENAME)))
     };
 }
 use db_conn;
@@ -69,7 +74,7 @@ use db_conn;
 macro_rules! execute_sql {
     ($stmt:expr, $params:expr, $($arg:tt)*) => {
         match $stmt.execute($params) {
-            Ok(_) => Ok(()),
+            Ok(updates) => Ok(updates),
             Err(error) => err!("{}: {:?}", format!($($arg)*), error)
         }
     };
@@ -133,64 +138,159 @@ use commit_tx;
 
 /// The Sqlite3 database data adapter implementation.
 pub struct SqliteBackend {
-    /// The weather data configuration being used.
-    config: Config,
     /// The weather data directory.
     weather_dir: WeatherDir,
 }
 impl SqliteBackend {
-    pub fn new(config: Config, weather_dir: WeatherDir) -> Self {
-        Self { config, weather_dir }
+    /// Create a new instance of the sqlite backend.
+    ///
+    /// # Arguments
+    ///
+    /// * `configuration` is the current weather data configuration.
+    ///
+    pub fn new(configuration: Arc<Configuration>) -> crate::Result<Self> {
+        log::debug!("SqliteBackend");
+        let weather_dir = WeatherDir::try_from(&configuration)?;
+        Ok(Self { weather_dir })
+    }
+
+    /// Get a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `conn` is the database connection that will be used.
+    /// * `filter` is used to get the location.
+    ///
+    fn get_location(&self, conn: &rusqlite::Connection, filter: LocationFilter) -> crate::Result<Option<Location>> {
+        // let mut locations = self.get_locations(Some(vec![filter]))?;
+        let mut locations = locations::get(conn, Some(vec![filter]))?;
+        match locations.len() {
+            0 => Ok(None),
+            1 => Ok(locations.pop()),
+            _ => err!("Multiple locations were found."),
+        }
     }
 }
 impl Backend for SqliteBackend {
-    fn get_config(&self) -> &Config {
-        &self.config
-    }
-
+    /// Add weather data history to a location.
+    ///
+    /// # Arguments
+    ///
+    /// - `daily_histories` contains the historical weather data that will be added.
+    ///
     fn add_daily_histories(&self, daily_histories: DailyHistories) -> crate::Result<usize> {
         let mut conn = db_conn!(&self.weather_dir)?;
         history::add(&mut conn, &self.weather_dir, daily_histories)
     }
 
-    fn get_daily_histories(&self, filters: LocationFilters, history_range: DateRange) -> crate::Result<DailyHistories> {
+    /// Get daily weather history for a location.
+    ///
+    /// It is an error if more than 1 location is found.
+    ///
+    /// # Arguments
+    ///
+    /// - `filter` identifies the location.
+    /// - `history_range` covers the history dates returned.
+    ///
+    fn get_daily_histories(&self, filter: LocationFilter, history_range: DateRange) -> crate::Result<DailyHistories> {
         let mut conn = db_conn!(&self.weather_dir)?;
-        let mut locations = locations::get(&conn, filters)?;
-        let location = match locations.len() {
-            1 => locations.pop().unwrap(),
-            0 => err!("a location was not found.")?,
-            _ => err!("Multiple locations were found.")?,
-        };
-        history::get(&mut conn, location, history_range)
+        match self.get_location(&conn, filter)? {
+            None => err!("The location was not found."),
+            Some(location) => history::get(&mut conn, location, history_range),
+        }
     }
 
-    fn get_history_dates(&self, filters: LocationFilters) -> crate::Result<Vec<HistoryDates>> {
+    /// Get the history dates for locations.
+    ///
+    /// # Arguments
+    ///
+    /// - `filters` identifies the locations.
+    ///
+    fn get_history_dates(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistoryDates>> {
         let conn = db_conn!(&self.weather_dir)?;
         history::history_dates(&conn, filters)
     }
 
-    fn get_history_summaries(&self, filters: LocationFilters) -> crate::Result<Vec<HistorySummaries>> {
+    /// Get a summary of location weather data.
+    ///
+    /// # Arguments
+    ///
+    /// - `filters` identifies the locations.
+    ///
+    fn get_history_summaries(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistorySummaries>> {
         let mut conn = db_conn!(&self.weather_dir)?;
         history::summary(&mut conn, &self.weather_dir, filters)
     }
 
-    fn get_locations(&self, filters: LocationFilters) -> crate::Result<Vec<Location>> {
+    /// Get the weather location metadata.
+    ///
+    /// # Arguments
+    ///
+    /// - `filters` identifies the locations of interest.
+    ///
+    fn get_locations(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<Location>> {
         let conn = db_conn!(&self.weather_dir)?;
         locations::get(&conn, filters)
     }
 
+    /// Add a location.
+    ///
+    /// #Arguments
+    ///
+    /// * `location` is the location data.
+    ///
     fn add_location(&self, location: Location) -> crate::Result<()> {
         let mut conn = db_conn!(&self.weather_dir)?;
         locations::add(&mut conn, location, &self.weather_dir)
     }
 
+    /// Delete a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` is used to get the location.
+    ///
+    fn delete_location(&self, filter: LocationFilter) -> crate::Result<()> {
+        let mut conn = db_conn!(&self.weather_dir)?;
+        match self.get_location(&conn, filter)? {
+            None => err!("The location was not found."),
+            Some(location) => {
+                let tx = create_tx!(conn, "Failed to create delete tx for {location}.")?;
+                let lid = locations::location_id(&tx, &location.alias)?;
+                history::delete(&tx, lid)?;
+                metadata::delete(&tx, lid)?;
+                locations::delete(&tx, &location.alias, &self.weather_dir)?;
+                commit_tx!(tx, "Error deleting {location}")
+            }
+        }
+    }
+
+    /// Update a location properties.
+    ///
+    /// # Arguments
+    ///
+    /// * `location` identifies the location and contains the new property values.
+    ///
+    fn update_location(&self, location: Location) -> crate::Result<bool> {
+        let mut conn = db_conn!(&self.weather_dir)?;
+        locations::update(&mut conn, location, &self.weather_dir)
+    }
+
+    /// Search for a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` identifies which cities are being searched for (default is all).
+    ///
     fn search_locations(&self, filter: CityFilter) -> crate::Result<Vec<Location>> {
         if !us_cities::exists(&self.weather_dir) {
-            us_cities::create(&self.weather_dir, &self.config.us_cities.filename)?;
+            err!("{} has not been initialized.", DB_FILENAME)?;
         }
         us_cities::get_cities(&us_cities::open(&self.weather_dir)?, filter)
     }
 
+    /// Get a list of the US City states.
+    ///
     fn get_states(&self) -> crate::Result<Vec<State>> {
         us_cities::get_states(&us_cities::open(&self.weather_dir)?)
     }

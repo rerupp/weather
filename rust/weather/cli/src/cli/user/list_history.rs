@@ -20,7 +20,7 @@ pub const COMMAND_NAME: &'static str = "lh";
 /// Create the list history command.
 pub fn command() -> Command {
     Command::new(COMMAND_NAME)
-        .about("List the dates of weather history available by location.")
+        .about("List weather history dates for locations.")
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
         .args(LocationFilterArgs::get())

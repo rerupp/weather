@@ -1,8 +1,8 @@
 use crate::{
-    backend::{filesys::WeatherFile, Config},
+    backend::{filesys::WeatherFile, Configuration},
     Error, Result,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The [crate::backend::filesys::WeatherDir] error builder.
 macro_rules! error {
@@ -42,14 +42,22 @@ impl TryFrom<&str> for WeatherDir {
     }
 }
 
-impl TryFrom<&Config> for WeatherDir {
+impl TryFrom<&Configuration> for WeatherDir {
     type Error = Error;
-    fn try_from(config: &Config) -> std::result::Result<Self, Self::Error> {
-        WeatherDir::new(PathBuf::from(&config.weather_data.directory))
+    fn try_from(configuration: &Configuration) -> std::result::Result<Self, Self::Error> {
+        WeatherDir::new(PathBuf::from(&configuration.weather_data.directory))
+    }
+}
+impl TryFrom<&std::sync::Arc<Configuration>> for WeatherDir {
+    type Error = Error;
+    fn try_from(configuration: &std::sync::Arc<Configuration>) -> std::result::Result<Self, Self::Error> {
+        WeatherDir::new(PathBuf::from(&configuration.weather_data.directory))
     }
 }
 
 impl WeatherDir {
+    pub const ARCHIVE_EXTENSION: &'static str = "zip";
+
     /// Creates a new instance of the weather directory manager.
     ///
     /// An error will be returned if the directory does not exist, or does exist but is not a directory.
@@ -68,12 +76,25 @@ impl WeatherDir {
     /// # Arguments
     ///
     /// * `filename` is the name of the file within the weather directory.
+    ///
     pub fn file(&self, filename: &str) -> WeatherFile {
         WeatherFile::new(self.0.join(filename))
     }
+
+    /// Get an archive from the weather data directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` is the location alias name.
+    ///
     pub fn archive(&self, alias: &str) -> WeatherFile {
-        let archive_name = self.0.join(alias).with_extension("zip");
+        let archive_name = self.0.join(alias).with_extension(Self::ARCHIVE_EXTENSION);
         WeatherFile::new(archive_name)
+    }
+
+    /// The admin api needs access to the path.
+    pub fn path(&self) -> &Path {
+        self.0.as_path()
     }
 }
 

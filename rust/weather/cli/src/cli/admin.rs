@@ -1,22 +1,16 @@
 //! The weather data administration cli.
 use crate::cli::{self, Command};
 use clap::ArgMatches;
-use weather_lib::admin_prelude::WeatherAdmin;
+use weather_lib::{admin_prelude::WeatherAdmin, prelude::Configuration};
 
+mod check;
+mod config;
+mod copy;
 mod drop;
-use drop::DropCmd;
-
 mod init;
-use init::InitCmd;
-
 mod reload;
-use reload::ReloadCmd;
-
 mod show;
-use show::ShowCmd;
-
 mod us_cities;
-use us_cities::UsCitiesCmd;
 
 #[derive(Debug)]
 pub struct Admin;
@@ -30,27 +24,39 @@ impl Admin {
             .subcommand_required(true)
             .arg_required_else_help(true)
             .allow_external_subcommands(false)
-            .subcommand(InitCmd::get())
-            .subcommand(DropCmd::get())
-            .subcommand(ReloadCmd::get())
-            .subcommand(ShowCmd::get())
-            .subcommand(UsCitiesCmd::get())
+            .subcommand(init::command())
+            .subcommand(check::command())
+            .subcommand(drop::command())
+            .subcommand(show::command())
+            .subcommand(copy::command())
+            .subcommand(reload::command())
+            .subcommand(config::command())
+            .subcommand(us_cities::command())
     }
+
     /// Executes the command.
     ///
     /// # Arguments
     ///
     /// * `weather_data` is the weather data API.
     /// * `args` contains the report history command arguments.
-    pub fn run(weather_admin: &WeatherAdmin, mut args: ArgMatches) -> cli::Result<()> {
+    pub fn run(configuration: Configuration, mut args: ArgMatches) -> cli::Result<()> {
         let (name, cmd_args) = args.remove_subcommand().expect("There was no subcommand available to run");
-        match (name.as_str(), cmd_args) {
-            (InitCmd::NAME, cmd_args) => InitCmd::run(weather_admin, cmd_args),
-            (DropCmd::NAME, cmd_args) => DropCmd::run(weather_admin, cmd_args),
-            (ShowCmd::NAME, cmd_args) => ShowCmd::run(weather_admin, cmd_args),
-            (ReloadCmd::NAME, cmd_args) => ReloadCmd::run(weather_admin, cmd_args),
-            (UsCitiesCmd::NAME, cmd_args) => UsCitiesCmd::run(weather_admin, cmd_args),
-            _ => unreachable!("Admin command should not be here..."),
+        if name == us_cities::COMMAND_NAME {
+            us_cities::execute(configuration, cmd_args)
+        } else if name == config::COMMAND_NAME {
+            config::execute(configuration, cmd_args)
+        } else {
+            let weather_admin = WeatherAdmin::try_from(configuration)?;
+            match (name.as_str(), cmd_args) {
+                (init::COMMAND_NAME, cmd_args) => init::execute(&weather_admin, cmd_args),
+                (check::COMMAND_NAME, cmd_args) => check::execute(&weather_admin, cmd_args),
+                (drop::COMMAND_NAME, cmd_args) => drop::execute(&weather_admin, cmd_args),
+                (show::COMMAND_NAME, cmd_args) => show::execute(&weather_admin, cmd_args),
+                (reload::COMMAND_NAME, cmd_args) => reload::execute(&weather_admin, cmd_args),
+                (copy::COMMAND_NAME, cmd_args) => copy::execute(&weather_admin, cmd_args),
+                _ => unreachable!("Admin command should not be here..."),
+            }
         }
     }
 }

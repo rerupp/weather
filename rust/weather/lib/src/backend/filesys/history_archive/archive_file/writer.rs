@@ -1,7 +1,7 @@
 //! The history archive file writer.
 //!
 
-use super::{archive::date_to_filename, ArchiveData};
+use super::{archive, archive::date_to_filename, ArchiveData};
 use crate::backend::filesys::WeatherFile;
 use chrono::{Datelike, Timelike, Utc};
 use std::fs::{self, File};
@@ -16,9 +16,9 @@ pub const BACKUP_EXT: &'static str = "bu";
 
 /// The [ArchiveWriter] error builder.
 ///
-macro_rules! error {
+macro_rules! err {
     ($id:expr, $reason:expr) => {
-        crate::Error::from(format!("'{}' ArchiveWriter {}", $id, $reason))
+        Err(crate::Error::from(format!("ArchiveWriter({}): {}.", $id, $reason)))
     };
 }
 
@@ -48,6 +48,7 @@ impl<'w> ArchiveWriter<'w> {
     ///
     /// `histories` is what will be added to the archive.
     pub fn add_data(&mut self, histories: Vec<ArchiveData>) -> crate::Result<()> {
+        crate::log_elapsed_time!(&format!("ArchiveWriter::add_data({}):", histories.len() ));
         let mut writer = self.open()?;
         for file_data in histories {
             self.write_file(&mut writer, file_data)?;
@@ -78,31 +79,27 @@ impl<'w> ArchiveWriter<'w> {
         let options =
             SimpleFileOptions::default().compression_method(CompressionMethod::Deflated).last_modified_time(mtime);
         if let Err(start_error) = writer.start_file(&filename, options) {
-            Err(error!(self.lid, format!("failed to start history on {}: {}.", file_data.date, start_error)))
+            err!(self.lid, format!("failed to start history on {}: {}.", file_data.date, start_error))
         } else if let Err(write_error) = writer.write_all(&file_data.data) {
-            Err(error!(self.lid, format!("failed to write history on {}: {}", file_data.date, write_error)))
+            err!(self.lid, format!("failed to write history on {}: {}", file_data.date, write_error))
         } else {
             Ok(())
         }
     }
 
-    /// Creates the [ZipWriter] that will update the archive.
+    /// Creates a [ZipWriter] that will update the archive.
     ///
     /// In order to add data the archive is first copied to the writable path. When done adding history the
     /// archive will be restored when the [ZipWriter] is closed.
     ///
     fn open(&self) -> crate::Result<ZipWriter<File>> {
         let update_file = self.archive.with_extension(UPDATE_EXT);
-        if let Err(error) = self.archive.copy(&update_file) {
-            Err(error)?;
+        self.archive.copy(&update_file)?;
+        let result = archive::writer(&update_file);
+        if let Err(error) = &result {
+            err!(self.lid, error.to_string())?;
         }
-        match File::options().read(true).write(true).open(update_file.path()) {
-            Ok(file) => match ZipWriter::new_append(file) {
-                Ok(zip_writer) => Ok(zip_writer),
-                Err(zip_error) => Err(error!(self.lid, format!("failed to open update file: {}", zip_error))),
-            },
-            Err(file_error) => Err(error!(self.lid, format!("failed to create update file: {}.", file_error))),
-        }
+        result
     }
 
     /// Close the [ZipWriter] and restore the archive.
@@ -115,17 +112,18 @@ impl<'w> ArchiveWriter<'w> {
     /// * `writer` is what was used to update the archive histories.
     ///
     fn close(&self, writer: ZipWriter<File>) -> crate::Result<()> {
+        crate::log_elapsed_time!("ArchiveWriter::close():");
         // close the writer now to flush contents
         // drop(writer);
         if let Err(finish_error) = writer.finish() {
-            Err(error!(self.lid, format!("failed to finish archive update: {}", finish_error)))?;
+            err!(self.lid, format!("failed to finish archive update: {}", finish_error))?;
         }
         // try to safely replace the updated archive
         let update_file = self.archive.with_extension(UPDATE_EXT);
         let backup_file = self.archive.with_extension(BACKUP_EXT);
         // make a copy of the archive
         if let Err(error) = self.archive.copy(&backup_file) {
-            Err(error!(self.lid, format!("failed to create backup file: {}.", error)))?;
+            err!(self.lid, format!("failed to create backup file: {}.", error))?;
         }
         // try to safe update the archive
         match update_file.rename(&self.archive) {
@@ -145,29 +143,13 @@ impl<'w> ArchiveWriter<'w> {
                         update_error,
                         recover_error
                     );
-                    Err(error!(self.lid, "failed to close archive and the backup file was not recovered!"))
+                    err!(self.lid, "failed to close archive and the backup file was not recovered!")
                 } else {
-                    Err(error!(self.lid, format!("failed to update archive: {}.", update_error)))
+                    err!(self.lid, format!("failed to update archive: {}.", update_error))
                 }
             }
         }
     }
-
-    // /// Copy the contents of one archive to another (see std::fs::copy).
-    // ///
-    // /// Arguments:
-    // ///
-    // /// * `from` is the source file.
-    // /// * `to` is the destination file.
-    // ///
-    // fn copy_archive(&self, from: &Path, to: &Path) -> crate::Result<()> {
-    //     // copy will overwrite the target file if it exists
-    //     if let Err(error) = fs::copy(from, to) {
-    //         Err(error!(self.lid, format!("error copying {} to {}: {}", from.display(), to.display(), &error)))
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
 }
 impl<'w> Drop for ArchiveWriter<'w> {
     /// If something bad happens adding history, this attempts to clean up files that might be

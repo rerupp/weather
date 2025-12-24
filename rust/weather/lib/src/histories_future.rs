@@ -7,12 +7,7 @@
 mod timeline_client;
 use timeline_client::TimelineClient;
 
-use crate::backend::Config;
-use crate::prelude::DailyHistories;
-use crate::{
-    prelude::{DateRange, History, HistoryDates, Location},
-    Result,
-};
+use crate::prelude::{Configuration, DailyHistories, DateRange, History, HistoryDates, Location};
 use std::fmt::Formatter;
 use std::time::Duration;
 use std::{
@@ -36,7 +31,7 @@ macro_rules! err {
 /// * `history_dates` is the current location history dates.
 /// * `config` contains the current weather data configuration information.
 ///
-pub fn get(dates: DateRange, history_dates: HistoryDates, config: &Config) -> Result<HistoriesFuture> {
+pub fn get(dates: DateRange, history_dates: HistoryDates, config: &Configuration) -> crate::Result<HistoriesFuture> {
     for date in &dates {
         if history_dates.history_dates.iter().any(|date_range| date_range.contains(&date)) {
             Err("The location already has histories for those dates.")?;
@@ -75,7 +70,12 @@ impl HistoriesFuture {
     /// * `config` contains the current weather data configuration information.
     /// * `timeout` is the number of seconds to wait for a remote server response before considering it has timed out.
     ///
-    fn new(location: Location, dates: DateRange, config: &Config, timeout: Option<usize>) -> Result<Self> {
+    fn new(
+        location: Location,
+        dates: DateRange,
+        config: &Configuration,
+        timeout: Option<usize>,
+    ) -> crate::Result<Self> {
         let outcome = Arc::new(HistoryOutcome::new());
         let timeline_client =
             TimelineClient::new(location.clone(), dates, &config.visual_crossing.endpoint, outcome.clone())?;
@@ -100,7 +100,7 @@ impl HistoriesFuture {
     /// the background thread has completed or has timed out communicating with the
     /// remote server.
     ///
-    pub fn get(&self) -> Result<Option<DailyHistories>> {
+    pub fn get(&self) -> crate::Result<Option<DailyHistories>> {
         // guard against the thread being a runaway for whatever reason
         if !self.outcome.is_timeout() {
             loop {

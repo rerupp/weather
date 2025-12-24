@@ -2,37 +2,32 @@
 
 pub(crate) mod admin;
 
+pub(in crate::backend) mod fs_lib;
+
+mod histories_reader;
+
 mod history;
 
 mod history_archive;
+use history_archive::HistoryArchive;
+
 mod locations;
+use locations::Locations;
+
 mod weather_dir;
+pub(crate) use weather_dir::WeatherDir;
+
 mod weather_file;
+pub(in crate::backend) use weather_file::WeatherFile;
 
-pub(in crate::backend) use {
-    history_archive::{ArchiveMetadata, HistoryArchive},
-    locations::Locations,
-    weather_dir::WeatherDir,
-    weather_file::WeatherFile,
-};
-
-use super::LocationFilters;
 use crate::{
-    backend::{Backend, Config},
-    entities::{DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, State, CityFilter},
+    backend::Backend,
+    prelude::{
+        CityFilter, Configuration, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter,
+        State,
+    },
 };
-
-/// Get a [WeatherDir] instance.
-pub(in crate::backend) fn create_weather_dir(dirname: &str) -> crate::Result<WeatherDir> {
-    let weather_dir = if dirname.len() > 0 {
-        WeatherDir::try_from(dirname)?
-    } else if let Ok(env_pathname) = std::env::var("WEATHER_DATA") {
-        WeatherDir::try_from(env_pathname)?
-    } else {
-        WeatherDir::try_from("weather_data")?
-    };
-    Ok(weather_dir)
-}
+use std::sync::Arc;
 
 /// Create a Locations specific error message.
 macro_rules! error {
@@ -40,6 +35,7 @@ macro_rules! error {
         crate::Error::from(format!("ArchiveBackend {}", format!($($arg)*)))
     }
 }
+use error;
 
 /// Create an error from the locations specific error message.
 macro_rules! err {
@@ -47,6 +43,7 @@ macro_rules! err {
         Err(error!($($arg)*))
     };
 }
+use err;
 
 /// Creates the file based data API for weather data.
 ///
@@ -54,17 +51,18 @@ macro_rules! err {
 ///
 /// * `config` contains the weather data configuration.
 ///
-pub fn create_filesys_backend(config: Config) -> crate::Result<Box<dyn Backend>> {
+pub fn create_filesys_backend(configuration: Arc<Configuration>) -> crate::Result<Box<dyn Backend>> {
     log::debug!("ArchiveBackend");
-    let weather_dir = create_weather_dir(&config.weather_data.directory)?;
-    Ok(Box::new(ArchiveBackend { config, weather_dir }))
+    let weather_dir = WeatherDir::try_from(&configuration)?;
+    Ok(Box::new(ArchiveBackend { weather_dir, configuration }))
 }
 
 /// The archive implementation of a [Backend].
 struct ArchiveBackend {
-    config: Config,
-    /// The directory containing weather data files.rs
+    /// The directory containing weather history files.
     weather_dir: WeatherDir,
+    /// The weather data configuration
+    configuration: Arc<Configuration>,
 }
 impl ArchiveBackend {
     /// Used internally to get the archive manager for some location.
@@ -77,14 +75,23 @@ impl ArchiveBackend {
         let weather_file = self.weather_dir.archive(alias);
         HistoryArchive::open(alias, weather_file)
     }
+
+    /// Get a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` identifies what location to get.
+    ///
+    fn get_location(&self, filter: LocationFilter) -> crate::Result<Option<Location>> {
+        let mut locations = fs_lib::get_locations(&self.weather_dir, Some(vec![filter]))?;
+        match locations.len() {
+            0 => Ok(None),
+            1 => Ok(locations.pop()),
+            _ => err!("Multiple locations were found.")?,
+        }
+    }
 }
 impl Backend for ArchiveBackend {
-    /// Get the backend configuration.
-    ///
-    fn get_config(&self) -> &Config {
-        &self.config
-    }
-
     /// Add weather data history for a location.
     ///
     /// # Arguments
@@ -93,9 +100,7 @@ impl Backend for ArchiveBackend {
     ///
     fn add_daily_histories(&self, daily_histories: DailyHistories) -> crate::Result<usize> {
         crate::log_elapsed_time!(trace, "add_daily_histories");
-        let location = &daily_histories.location;
-        let archive = self.get_archive(&location.alias)?;
-        let additions = archive.append(&daily_histories.histories)?;
+        let additions = fs_lib::add_daily_history(&self.weather_dir, &daily_histories)?;
         Ok(additions.len())
     }
 
@@ -103,21 +108,19 @@ impl Backend for ArchiveBackend {
     ///
     /// # Arguments
     ///
-    /// * `filters` identifies what location should be used.
+    /// * `filter` identifies what location should be used.
     /// * `history_range` specifies the date range that should be used.
     ///
-    fn get_daily_histories(&self, filters: LocationFilters, history_range: DateRange) -> crate::Result<DailyHistories> {
-        let mut locations = self.get_locations(filters)?;
-        let location = match locations.len() {
-            1 => locations.pop().unwrap(),
-            // 0 => Err(crate::Error::from("A location was not found."))?,
-            0 => err!("a location was not found.")?,
-            _ => err!("Multiple locations were found.")?,
-        };
+    fn get_daily_histories(&self, filter: LocationFilter, history_range: DateRange) -> crate::Result<DailyHistories> {
         crate::log_elapsed_time!(trace, "get_daily_histories");
-        let archive = self.get_archive(&location.alias)?;
-        let daily_histories = archive.histories(&history_range)?.collect();
-        Ok(DailyHistories { location, histories: daily_histories })
+        match self.get_location(filter)? {
+            None => err!("A location was not found."),
+            Some(location) => {
+                let archive = self.get_archive(&location.alias)?;
+                let histories = archive.histories(&history_range)?.collect();
+                Ok(DailyHistories { location, histories })
+            }
+        }
     }
 
     /// Get the weather history dates for locations.
@@ -126,16 +129,10 @@ impl Backend for ArchiveBackend {
     ///
     /// * `filters` identifies the locations.
     ///
-    fn get_history_dates(&self, filters: LocationFilters) -> crate::Result<Vec<HistoryDates>> {
-        let locations = self.get_locations(filters)?;
+    fn get_history_dates(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistoryDates>> {
         crate::log_elapsed_time!(trace, "get_history_dates");
-        let mut history_dates = Vec::with_capacity(locations.len());
-        for location in locations {
-            let archive = self.get_archive(&location.alias)?;
-            let dates = archive.dates(None)?;
-            history_dates.push(HistoryDates { location, history_dates: dates.date_ranges })
-        }
-        Ok(history_dates)
+        let locations = fs_lib::get_locations(&self.weather_dir, filters)?;
+        history_dates::get_history_dates(&self.weather_dir, locations, self.configuration.weather_data.max_workers)
     }
 
     /// Get the summary metrics of a locations weather data.
@@ -144,22 +141,14 @@ impl Backend for ArchiveBackend {
     ///
     /// * `filters` identifies the locations that should be used.
     ///
-    fn get_history_summaries(&self, filters: LocationFilters) -> crate::Result<Vec<HistorySummaries>> {
-        let locations = self.get_locations(filters)?;
+    fn get_history_summaries(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistorySummaries>> {
         crate::log_elapsed_time!(trace, "get_history_summaries");
-        let mut history_summaries = Vec::with_capacity(locations.len());
-        for location in locations {
-            let archive = self.get_archive(&location.alias)?;
-            let summary = archive.summary()?;
-            history_summaries.push(HistorySummaries {
-                location,
-                count: summary.count,
-                overall_size: summary.overall_size,
-                raw_size: summary.raw_size,
-                store_size: summary.compressed_size,
-            });
-        }
-        Ok(history_summaries)
+        let locations = fs_lib::get_locations(&self.weather_dir, filters)?;
+        history_summaries::get_history_summaries(
+            &self.weather_dir,
+            locations,
+            self.configuration.weather_data.max_workers,
+        )
     }
 
     /// Get the metadata for weather locations.
@@ -168,13 +157,9 @@ impl Backend for ArchiveBackend {
     ///
     /// * `filters` identifies the locations of interest.
     ///
-    fn get_locations(&self, filters: LocationFilters) -> crate::Result<Vec<Location>> {
+    fn get_locations(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<Location>> {
         crate::log_elapsed_time!(trace, "get_locations");
-        let locations = match filters.is_empty() {
-            true => Locations::open(&self.weather_dir)?.get()?.collect(),
-            false => Locations::open(&self.weather_dir)?.find(filters)?.collect(),
-        };
-        Ok(locations)
+        fs_lib::get_locations(&self.weather_dir, filters)
     }
 
     /// Add a new weather location.
@@ -185,8 +170,34 @@ impl Backend for ArchiveBackend {
     ///
     fn add_location(&self, location: Location) -> crate::Result<()> {
         crate::log_elapsed_time!(trace, "add_location");
-        Locations::open(&self.weather_dir)?.add(location)?;
+        fs_lib::add_location(&self.weather_dir, location)?;
         Ok(())
+    }
+
+    /// Delete a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` is used to get the location alias name.
+    ///
+    fn delete_location(&self, filter: LocationFilter) -> crate::Result<()> {
+        match self.get_location(filter)? {
+            None => err!("Did not find a location to delete."),
+            Some(location) => {
+                fs_lib::delete_location(&self.weather_dir, &location.alias)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Update a locations properties
+    ///
+    /// # Arguments
+    ///
+    /// * `location` identifies the location and contains the new property values.
+    ///
+    fn update_location(&self, location: Location) -> crate::Result<bool> {
+        Ok(fs_lib::update_location(&self.weather_dir, location)?.is_some())
     }
 
     /// Search US Cities for location metadata.
@@ -195,23 +206,128 @@ impl Backend for ArchiveBackend {
     ///
     /// * `filter` identifies which cities are being searched for (default is all).
     ///
-    fn search_locations(&self, filter: CityFilter) -> crate::Result<Vec<Location>> {
-        crate::log_elapsed_time!(trace, "search_locations");
-        use crate::backend::db::sqlite as db;
-        match !db::us_cities::exists(&self.weather_dir) {
-            true => Ok(vec![]),
-            false => db::us_cities::get_cities(&db::us_cities::open(&self.weather_dir)?, filter),
-        }
+    fn search_locations(&self, _filter: CityFilter) -> crate::Result<Vec<Location>> {
+        err!("Search locations is not currently available running in file system mode.")
     }
 
     /// Get the city state information that has been loaded.
     ///
     fn get_states(&self) -> crate::Result<Vec<State>> {
-        crate::log_elapsed_time!(trace, "search_locations");
-        use crate::backend::db::sqlite as db;
-        match !db::us_cities::exists(&self.weather_dir) {
-            true => Ok(vec![]),
-            false => db::us_cities::get_states(&db::us_cities::open(&self.weather_dir)?),
+        err!("Get states is not currently available running in file system mode.")
+    }
+}
+
+mod history_dates {
+    //! Use the [HistoryReader] to mine history dates from the archives.
+    //!
+    use super::*;
+    use crate::backend::filesys::histories_reader::{generate_history_reader, HistoriesReader, HistoryReader};
+    use std::thread;
+
+    /// The API that gets location history dates.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `filters` optionally restricts which location counts will be returned.
+    ///
+    pub fn get_history_dates(
+        weather_dir: &WeatherDir,
+        locations: Vec<Location>,
+        max_threads: usize,
+    ) -> crate::Result<Vec<HistoryDates>> {
+        crate::log_elapsed_time!(trace, "get_history_dates");
+        let mut history_dates =
+            HistoriesReader::new(weather_dir, locations, max_threads, HistoryDatesReader::create).collect::<Vec<_>>();
+        history_dates.sort_unstable_by(|lhs, rhs| lhs.location.name.cmp(&rhs.location.name));
+        Ok(history_dates)
+    }
+
+    generate_history_reader!(HistoryDatesReader, HistoryDates);
+    impl HistoryReader<HistoryDates> for HistoryDatesReader {
+        fn read_archive(&self) {
+            crate::log_elapsed_time!(format!("{:?} HistoryDatesReader", thread::current().id()));
+            while let Some(item) = self.queue.take() {
+                let location = item.location;
+                let archive_file = item.file;
+                match HistoryArchive::open(&location.alias, archive_file) {
+                    Err(error) => {
+                        log::error!("Could not open history archive for {}: {}", location.name, error);
+                    }
+                    Ok(archive) => match archive.dates(None) {
+                        Err(error) => {
+                            log::error!("Could not get history dates for {}: {}", location.name, error);
+                        }
+                        Ok(dates) => {
+                            let history_dates = HistoryDates { location, history_dates: dates.date_ranges };
+                            if let Err(error) = self.sender.send(history_dates) {
+                                log::error!("Did not send history dates for {}: {}", error.0.location.name, error);
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+mod history_summaries {
+    //! Use the [HistoryReader] to mine the history summaries from the archives.
+    //!
+    use super::*;
+    use crate::backend::filesys::histories_reader::{generate_history_reader, HistoriesReader, HistoryReader};
+    use std::thread;
+
+    /// The API that gets location history dates.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `filters` optionally restricts which location counts will be returned.
+    ///
+    pub fn get_history_summaries(
+        weather_dir: &WeatherDir,
+        locations: Vec<Location>,
+        max_threads: usize,
+    ) -> crate::Result<Vec<HistorySummaries>> {
+        crate::log_elapsed_time!(trace, "get_history_summaries");
+        let mut history_summaries =
+            HistoriesReader::new(weather_dir, locations, max_threads, HistorySummariesReader::create)
+                .collect::<Vec<_>>();
+        history_summaries.sort_unstable_by(|lhs, rhs| lhs.location.name.cmp(&rhs.location.name));
+        Ok(history_summaries)
+    }
+
+    generate_history_reader!(HistorySummariesReader, HistorySummaries);
+    impl HistoryReader<HistorySummaries> for HistorySummariesReader {
+        fn read_archive(&self) {
+            crate::log_elapsed_time!(format!("{:?} HistorySummariesReader", thread::current().id()));
+            while let Some(item) = self.queue.take() {
+                let location = item.location;
+                let archive_file = item.file;
+                match HistoryArchive::open(&location.alias, archive_file) {
+                    Err(error) => {
+                        log::error!("Could not open history archive for {}: {}", location.name, error);
+                    }
+                    Ok(archive) => match archive.summary() {
+                        Err(error) => {
+                            log::error!("Could not read history summary for {}: {}", location.name, error);
+                        }
+                        Ok(history_summary) => {
+                            let history_summaries = HistorySummaries {
+                                location,
+                                count: history_summary.count,
+                                overall_size: history_summary.overall_size,
+                                raw_size: history_summary.raw_size,
+                                store_size: history_summary.compressed_size,
+                            };
+                            if let Err(error) = self.sender.send(history_summaries) {
+                                log::error!("Did not send history summary for {}: {}", error.0.location.name, error);
+                            }
+                        }
+                    },
+                }
+            }
         }
     }
 }

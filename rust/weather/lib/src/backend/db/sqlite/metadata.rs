@@ -52,7 +52,8 @@ pub fn insert(tx: &Transaction, lid: i64, date: &NaiveDate, store_size: usize, s
 pub fn delete(tx: &Transaction, lid: i64) -> crate::Result<()> {
     const SQL: &str = "DELETE FROM metadata where lid=:lid";
     let mut stmt = prepare_sql!(tx, SQL, "failed to prepare delete SQL")?;
-    execute_sql!(stmt, named_params! {":lid": lid}, "failed to delete metadata for lid={lid}")
+    execute_sql!(stmt, named_params! {":lid": lid}, "failed to delete metadata for lid={lid}")?;
+    Ok(())
 }
 
 // #[cfg(test)]

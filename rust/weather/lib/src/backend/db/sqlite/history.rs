@@ -8,8 +8,10 @@ use super::{
     SqlResult,
 };
 use crate::{
-    backend::filesys::{HistoryArchive, WeatherDir},
-    entities::{DailyHistories, DateRange, History, HistorySummaries, Location, LocationFilters},
+    admin::entities::DbHistoryProblemDetails,
+    admin_prelude::DbHistoryProblems,
+    backend::filesys::{fs_lib, WeatherDir},
+    entities::{DailyHistories, DateRange, History, HistorySummaries, Location, LocationFilter},
 };
 use rusqlite::{named_params, Connection, Row, Transaction};
 
@@ -31,29 +33,32 @@ pub fn add(
     weather_dir: &WeatherDir,
     mut daily_histories: DailyHistories,
 ) -> crate::Result<usize> {
+    let location = &daily_histories.location;
+
     // make sure the database knows about the location
-    let lid = locations::location_id(conn, &daily_histories.location.alias)?;
+    let lid = locations::location_id(conn, &location.alias)?;
 
     // unfortunately the history archive does this when it adds
     daily_histories.histories.sort_by(|lhs, rhs| lhs.date.cmp(&rhs.date));
     daily_histories.histories.dedup_by(|lhs, rhs| lhs.date == rhs.date);
 
     // the history archive will make sure there are no duplicates added and issue log warnings
-    let archive_file = weather_dir.archive(&daily_histories.location.alias);
-    let archive = HistoryArchive::open(&daily_histories.location.alias, archive_file)?;
-    let added_dates = archive.append(&daily_histories.histories)?;
-    let added_histories = added_dates.len();
-
-    // JIC
-    if added_dates.len() == 0 {
-        return Ok(0);
-    }
+    let added_metadata = fs_lib::add_daily_history(weather_dir, &daily_histories)?;
+    let added_histories = match added_metadata.len() {
+        0 => return Ok(0),
+        len => len,
+    };
 
     // remove the histories that were not added
-    daily_histories.histories.retain(|history| added_dates.contains(&history.date));
+    daily_histories.histories.retain(|history| added_metadata.iter().any(|md| history.date == md.date));
+
+    // make sure the metadata and histories are in sync
+    #[cfg(debug_assertions)]
+    for i in 1..added_metadata.len() {
+        assert_eq!(daily_histories.histories[i].date, added_metadata[i].date);
+    }
 
     // for the database update, combine the histories and metadata
-    let added_metadata = archive.metadata_by_dates(added_dates)?.collect::<Vec<_>>();
     let updates = daily_histories
         .histories
         .into_iter()
@@ -84,7 +89,7 @@ pub fn add(
 /// * `store_size` is the size in bytes of the backing archive history data.
 /// * `history` is the weather history that will be added.
 ///
-pub(super) fn insert_history(
+pub fn insert_history(
     tx: &mut Transaction,
     lid: i64,
     size: usize,
@@ -124,7 +129,8 @@ pub(super) fn insert_history(
         ":precip_type": history.precipitation_type,
         ":description": history.description,
     ];
-    execute_sql!(stmt, params, "failed to insert history")
+    execute_sql!(stmt, params, "failed to insert history")?;
+    Ok(())
 }
 
 /// Get the daily weather data history for a location.
@@ -213,7 +219,7 @@ fn row_to_history(alias: &str, row: &Row) -> SqlResult<History> {
 pub fn summary(
     conn: &mut Connection,
     weather_dir: &WeatherDir,
-    filters: LocationFilters,
+    filters: Option<Vec<LocationFilter>>,
 ) -> crate::Result<Vec<HistorySummaries>> {
     let db_sizes = query::db_size(&conn, "history")?;
     let history_counts = query::history_counts(&conn)?;
@@ -242,25 +248,173 @@ pub fn summary(
 /// * `conn` is the database connection that will be used.
 /// * `weather_dir` is the weather data directory.
 /// * `alias` is the location that will be reloaded.
-pub(super) fn reload(conn: &mut Connection, weather_dir: &WeatherDir, alias: &str) -> crate::Result<()> {
+pub fn reload(conn: &mut Connection, weather_dir: &WeatherDir, alias: &str) -> crate::Result<()> {
     crate::log_elapsed_time!("reload");
     let size = estimate_size(&conn, "history")?;
     let lid = locations::location_id(conn, alias)?;
-    const SQL: &str = r#"
+    let mut tx = create_tx!(conn, "failed to create reload transaction")?;
+    delete(&tx, lid)?;
+    metadata::delete(&tx, lid)?;
+    for (md, history) in fs_lib::history_contents(weather_dir, alias)? {
+        insert_history(&mut tx, lid, size, md.compressed_size as usize, &history)?;
+    }
+    commit_tx!(tx, "failed to commit reload for '{alias}'")
+}
+
+/// Delete the history for a specific location.
+///
+/// # Arguments
+///
+/// * `tx` is the transaction that will be used.
+/// * `lid` is the database location id.
+///
+pub fn delete(tx: &Transaction, lid: i64) -> crate::Result<()> {
+    crate::log_elapsed_time!("history delete");
+    const DELETE_HISTORY: &str = r#"
         DELETE FROM history
         WHERE ROWID IN (
           SELECT h.ROWID FROM history AS h
           INNER JOIN metadata AS m ON h.mid = m.id
           WHERE m.lid = :lid
         )
-        "#;
-    let mut tx = create_tx!(conn, "failed to create reload transaction")?;
-    let mut stmt = prepare_sql!(tx, SQL, "failed to prepare delete SQL")?;
-    execute_sql!(stmt, named_params! {":lid": lid}, "failed to delete history for '{alias}'")?;
-    drop(stmt);
-    metadata::delete(&tx, lid)?;
-    for (md, history) in HistoryArchive::open(alias, weather_dir.archive(alias))?.metadata_and_history()? {
-        insert_history(&mut tx, lid, size, md.compressed_size as usize, &history)?;
+    "#;
+    let mut stmt = prepare_sql!(tx, DELETE_HISTORY, "failed to prepare delete SQL")?;
+    execute_sql!(stmt, named_params! {":lid": lid}, "failed to delete history")?;
+    Ok(())
+}
+
+pub fn check(conn: &mut Connection, weather_dir: &WeatherDir) -> crate::Result<Option<DbHistoryProblems>> {
+    let fs_history_counts = fs_lib::get_history_counts(weather_dir, None)?;
+    let mut history_problems = vec![];
+    let mut detached_store = vec![];
+    for history_summaries in summary(conn, weather_dir, None)? {
+        match fs_history_counts.iter().find(|(l, _)| &history_summaries.location.alias == &l.alias) {
+            None => detached_store.push(history_summaries),
+            Some((_, fs_count)) => {
+                if history_summaries.count != *fs_count {
+                    history_problems.push(DbHistoryProblemDetails {
+                        location: history_summaries.location,
+                        db_histories: history_summaries.count,
+                        fs_histories: *fs_count,
+                    });
+                }
+            }
+        }
     }
-    commit_tx!(tx, "failed to commit reload for '{alias}'")
+    match history_problems.len() > 0 || detached_store.len() > 0 {
+        false => Ok(None),
+        true => {
+            let mut problems = DbHistoryProblems::default();
+            if history_problems.len() > 0 {
+                problems.history_problems.replace(history_problems);
+            }
+            if detached_store.len() > 0 {
+                problems.detached_store.replace(detached_store);
+            }
+            Ok(Some(problems))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::{
+        // db::{admin::{create_db_admin, DbAdmin}, sqlite::{db_conn, prepare_sql, execute_sql}},
+        db::{
+            admin::{create_db_admin, DbAdmin},
+            sqlite::db_conn,
+        },
+        testlib,
+    };
+    use chrono::NaiveDate;
+    use std::{path::PathBuf, rc::Rc};
+
+    #[test]
+    fn add_history() {
+        // use the database test resources
+        let fixture = testlib::TestFixture::create();
+        fixture.copy_resources(&testlib::test_resources().join("db"));
+        let fixture_path = PathBuf::from(&fixture);
+
+        // initialize the database
+        let db_admin = Box::new(create_db_admin(Rc::new(WeatherDir::new(fixture_path.clone()).unwrap())));
+        db_admin.history_init(false).unwrap();
+        db_admin.history_load(3).unwrap();
+
+        // set up the test environment
+        let weather_dir = WeatherDir::new(PathBuf::from(&fixture)).unwrap();
+        let mut conn = db_conn!(weather_dir).unwrap();
+
+        // verify there are no issues between the database and filesystem
+        macro_rules! check {
+            ($what:expr) => {
+                if let Some(db_problems) = check(&mut conn, &weather_dir).unwrap() {
+                    println!("{} problems: {:?}", $what, db_problems);
+                    assert!(false);
+                }
+            };
+        }
+        check!("Init");
+
+        // get the locations
+        let mut locations = locations::get(&conn, None).unwrap();
+        let south = locations.pop().unwrap();
+        assert_eq!(south.alias, "south");
+        let north = locations.pop().unwrap();
+        assert_eq!(north.alias, "north");
+        let between = locations.pop().unwrap();
+        assert_eq!(between.alias, "between");
+
+        // capture the history counts before adding any histories
+        let before_history_counts = query::history_counts(&conn).unwrap();
+
+        macro_rules! date {
+            ($y:expr, $m:expr, $d:expr) => {
+                NaiveDate::from_ymd_opt($y, $m, $d).unwrap()
+            };
+        }
+
+        macro_rules! histories {
+            ($location:expr, $start:expr, $end:expr) => {
+                DateRange::new($start, $end)
+                    .into_iter()
+                    .map(|date| History { alias: $location.alias.clone(), date, ..Default::default() })
+                    .collect::<Vec<_>>()
+            };
+        }
+
+        // add histories that do not overlap
+        let histories = histories!(north, date!(2025, 10, 1), date!(2025, 10, 31));
+        let daily_histories = DailyHistories { location: north, histories };
+        let add_count = add(&mut conn, &weather_dir, daily_histories).unwrap();
+        assert_eq!(add_count, 31);
+        check!("Add all");
+
+        // capture the history counts after adding the histories
+        let north_history_counts = query::history_counts(&conn).unwrap();
+        assert_eq!(north_history_counts.get("north"), before_history_counts.get("north") + 31);
+
+        // add histories that partially overlap
+        let histories = histories!(south, date!(2015, 4, 7), date!(2015, 4, 21));
+        let daily_histories = DailyHistories { location: south, histories };
+        let add_count = add(&mut conn, &weather_dir, daily_histories).unwrap();
+        assert_eq!(add_count, 7);
+        check!("Partial add");
+
+        // verify the history counts after partially adding the histories
+        let south_history_counts = query::history_counts(&conn).unwrap();
+        assert_eq!(south_history_counts.get("south"), before_history_counts.get("south") + 7);
+
+        // add histories that all overlap
+        let histories = histories!(between, date!(2015, 4, 1), date!(2015, 4, 14));
+        let daily_histories = DailyHistories { location: between, histories };
+        let add_count = add(&mut conn, &weather_dir, daily_histories).unwrap();
+        assert_eq!(add_count, 0);
+        check!("No add");
+
+        // verify the history counts after trying to add
+        let between_history_counts = query::history_counts(&conn).unwrap();
+        assert_eq!(between_history_counts.get("between"), before_history_counts.get("between"));
+    }
 }

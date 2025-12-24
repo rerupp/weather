@@ -5,7 +5,7 @@ use chrono::prelude::{NaiveDate, NaiveDateTime};
 use std::path::PathBuf;
 use weather_lib::prelude::{
     CityFilter, DailyHistories, DateRange, HistoriesFuture, History, HistoryDates, HistorySummaries, Location,
-    LocationFilter, LocationFilters, State,
+    LocationFilter, State,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -496,10 +496,12 @@ impl PyLocationFilter {
 pub struct PyLocationFilters {
     pub filters: Vec<PyLocationFilter>,
 }
-impl From<PyLocationFilters> for LocationFilters {
-    fn from(py_filters: PyLocationFilters) -> Self {
-        let filters = py_filters.filters.into_iter().map(Into::into).collect();
-        LocationFilters::new(filters)
+impl From<PyLocationFilters> for Option<Vec<LocationFilter>> {
+    fn from(filters: PyLocationFilters) -> Self {
+        match filters.filters.len() {
+            0 => None,
+            _ => Some(filters.filters.into_iter().map(Into::into).collect()),
+        }
     }
 }
 #[pymethods]

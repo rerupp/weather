@@ -1,4 +1,4 @@
-//! The show administrative information command.
+//! The show weather history information utility.
 use crate::cli;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use std::io::Write;
@@ -8,99 +8,91 @@ use toolslib::{
 };
 use weather_lib::admin_prelude::{Components, LocationDetails, WeatherAdmin};
 
-/// The label used for the filesys component name.
+/// The label used to describe the backing store.
 const FILESYS_COMPONENT: &str = "File Archives";
 
-/// The show components command.
-#[derive(Debug)]
-pub struct ShowCmd(
-    /// The show command arguments
-    pub(super) ArgMatches,
-);
-impl ShowCmd {
-    /// The stat sub-command name.
-    pub const NAME: &'static str = "show";
-    /// The show differences command argument.
-    const DETAILS: &'static str = "DETAILS";
-    /// The show differences command argument.
-    const DIFFS: &'static str = "DIFF";
-    /// Get the drop sub-command definition.
-    pub fn get() -> Command {
-        Command::new(Self::NAME)
-            .about("Show information about the weather data backend components.")
-            .arg(
-                Arg::new(Self::DETAILS)
-                    .long("detail")
-                    .action(ArgAction::SetTrue)
-                    .help("Show information about the weather history components (default)."),
-            )
-            .arg(
-                Arg::new(Self::DIFFS)
-                    .long("diff")
-                    .action(ArgAction::SetTrue)
-                    .help("Show differences between the weather history components."),
-            )
-    }
-    /// Collect the command line arguments and run the stat database sub-command.
-    ///
-    /// # Arguments
-    ///
-    /// * `admin_api` is the backend weather administration `API`.
-    pub fn run(admin_api: &WeatherAdmin, args: ArgMatches) -> cli::Result<()> {
-        let components = admin_api.components()?;
-        let mut writer = text::get_writer(&None, false)?;
-        let cmd_args = ShowCmd(args);
-        if cmd_args.details() {
-            ShowCmd::component_details(&mut writer, &components)?;
-        }
-        if cmd_args.diff() {
+/// The show weather history command name.
+pub const COMMAND_NAME: &'static str = "show";
+
+/// The show weather history details command argument.
+const DETAILS: &'static str = "DETAILS";
+
+/// The show weather history differences command argument.
+const DIFFS: &'static str = "DIFF";
+
+/// Get the show weather history command definition.
+///
+pub fn command() -> Command {
+    Command::new(COMMAND_NAME)
+        .about("Show information about the weather data backend components.")
+        .arg(
+            Arg::new(DETAILS)
+                .long("detail")
+                .action(ArgAction::SetTrue)
+                .help("Show information about the weather history components (default)."),
+        )
+        .arg(
+            Arg::new(DIFFS)
+                .long("diff")
+                .action(ArgAction::SetTrue)
+                .help("Show differences between the weather history components."),
+        )
+}
+
+/// Collect the command line arguments and run the stat database sub-command.
+///
+/// # Arguments
+///
+/// * `admin_api` is the backend weather administration `API`.
+/// * `args` contains the command line arguments.
+///
+pub fn execute(admin_api: &WeatherAdmin, args: ArgMatches) -> cli::Result<()> {
+    let components = admin_api.components()?;
+    let mut writer = text::get_writer(&None, false)?;
+    match args.get_flag(DIFFS) {
+        // if not diffs it must be details
+        false => component_details(&mut writer, &components),
+        true => {
+            if args.get_flag(DETAILS) {
+                component_details(&mut writer, &components)?;
+            }
             locations::audit(&mut writer, &components)?;
-            histories::audit(&mut writer, &components)?;
-        }
-        Ok(())
-    }
-    /// Generate a report about the weather data component details.
-    ///
-    /// # Arguments
-    ///
-    /// * `writer` is where the report will be written.
-    /// * `components` contains the details about weather data.
-    fn component_details(writer: &mut impl Write, components: &Components) -> cli::Result<()> {
-        let mut report = Report::from(rptcols!(<, >, >, >));
-        report.header(rptrow!(^ "Component Details", ^ "Size", ^ "Locations", ^ "Histories")).separator("-");
-        if let Some(db_details) = &components.db_details {
-            let size = mbufmt!(db_details.size);
-            let locations = mbufmt!(db_details.location_details.len());
-            let histories = mbufmt!(db_details.location_details.iter().map(|d| d.histories).sum::<usize>());
-            report.text(rptrow!("Database", size, locations, histories));
-        } else {
-            log::debug!("Weather data has not been initialized to use a database.");
-        }
-        let fs_details = &components.fs_details;
-        let size = mbufmt!(fs_details.size);
-        let locations = mbufmt!(fs_details.location_details.len());
-        let histories = mbufmt!(fs_details.location_details.iter().map(|d| d.histories).sum::<usize>());
-        report.text(rptrow!(FILESYS_COMPONENT, size, locations, histories));
-        report.text(rptrow!(_, + "="));
-        let total_size = match &components.db_details {
-            Some(db_details) => fs_details.size + db_details.size,
-            None => fs_details.size,
-        };
-        report.text(rptrow!("Overall", mbufmt!(total_size)));
-        text::write_strings(writer, report.into_iter())?;
-        Ok(())
-    }
-    /// Get the report details command argument.
-    fn details(&self) -> bool {
-        match self.diff() {
-            true => self.0.get_flag(Self::DETAILS),
-            false => true,
+            histories::audit(&mut writer, &components)
         }
     }
-    /// Get the show differences command argument.
-    fn diff(&self) -> bool {
-        self.0.get_flag(Self::DIFFS)
+}
+
+/// Generate a report about the weather data component details.
+///
+/// # Arguments
+///
+/// * `writer` is where the report will be written.
+/// * `components` contains the details about weather data.
+///
+fn component_details(writer: &mut impl Write, components: &Components) -> cli::Result<()> {
+    let mut report = Report::from(rptcols!(<, >, >, >));
+    report.header(rptrow!(^ "Component Details", ^ "Size", ^ "Locations", ^ "Histories")).separator("-");
+    if let Some(db_details) = &components.db_details {
+        let size = mbufmt!(db_details.size);
+        let locations = mbufmt!(db_details.location_details.len());
+        let histories = mbufmt!(db_details.location_details.iter().map(|d| d.histories).sum::<usize>());
+        report.text(rptrow!("Database", size, locations, histories));
+    } else {
+        log::debug!("Weather data has not been initialized to use a database.");
     }
+    let fs_details = &components.fs_details;
+    let size = mbufmt!(fs_details.size);
+    let locations = mbufmt!(fs_details.location_details.len());
+    let histories = mbufmt!(fs_details.location_details.iter().map(|d| d.histories).sum::<usize>());
+    report.text(rptrow!(FILESYS_COMPONENT, size, locations, histories));
+    report.text(rptrow!(_, + "="));
+    let total_size = match &components.db_details {
+        Some(db_details) => fs_details.size + db_details.size,
+        None => fs_details.size,
+    };
+    report.text(rptrow!("Overall", mbufmt!(total_size)));
+    text::write_strings(writer, report.into_iter())?;
+    Ok(())
 }
 
 mod locations {

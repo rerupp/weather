@@ -12,8 +12,7 @@ use termui_lib::prelude::{
     ControlGroup, ControlResult, DateEditor, DialogResult, DialogWindow, EditControl, EditField, EditFieldGroup, Label,
     MessageStyle, ProgressDialog,
 };
-use weather_lib::location_filter;
-use weather_lib::prelude::{DateRange, HistoriesFuture, Location, WeatherData};
+use weather_lib::prelude::{DateRange, HistoriesFuture, Location, LocationFilter, WeatherData};
 
 /// The dialog that manages adding weather data history to a location.
 ///
@@ -91,8 +90,8 @@ impl AddHistory {
                                     history_criteria.set_message(MessageStyle::Error, parse_error);
                                 }
                                 Ok(date_range) => {
-                                    let filter = location_filter!(name = &self.location.alias);
-                                    match self.weather_data.new_daily_histories(filter, date_range) {
+                                    let filter = LocationFilter::name(&self.location.alias);
+                                    match self.weather_data.fetch_daily_histories(filter, date_range) {
                                         Ok(future) => {
                                             history_progress.replace(ProgressDialog::new(format!(
                                                 "Downloading weather history for {}",

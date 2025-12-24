@@ -5,18 +5,17 @@ pub(crate) mod admin;
 // todo: filesys needs this right now, fix it
 pub(in crate::backend) mod sqlite;
 
-use super::LocationFilters;
-use crate::backend::{filesys::WeatherDir, Backend, Config};
+use crate::backend::{filesys::WeatherDir, Backend, Configuration};
+use std::sync::Arc;
 
 /// Create a database [`Backend`].
 ///
 /// # Arguments
 ///
 /// `config` is the weather data configuration.
-pub(in crate::backend) fn create_db_backend(config: Config) -> crate::Result<Box<dyn Backend>> {
+pub(in crate::backend) fn create_db_backend(configuration: Arc<Configuration>) -> crate::Result<Box<dyn Backend>> {
     log::debug!("Database data adapter");
-    let weather_dir = WeatherDir::try_from(&config)?;
-    Ok(Box::new(sqlite::SqliteBackend::new(config, weather_dir)))
+    Ok(Box::new(sqlite::SqliteBackend::new(configuration)?))
 }
 
 /// Tests if the database has been initialized.

@@ -225,7 +225,7 @@ impl LocationDocument {
         }
 
         match validate::state_id(&self.state_id) {
-            Ok(name) => self.state_id = name,
+            Ok(state_id) => self.state_id = state_id,
             Err(error) => {
                 warn!(index, "{}", error);
                 self.valid = false;
@@ -233,7 +233,7 @@ impl LocationDocument {
         }
 
         match validate::state(&self.state) {
-            Ok(name) => self.state = name,
+            Ok(state) => self.state = state,
             Err(error) => {
                 warn!(index, "{}", error);
                 self.valid = false;
@@ -273,12 +273,18 @@ impl LocationDocument {
         }
         self.valid
     }
+
+    /// Create the name of the location.
+    ///
+    pub fn get_name(&self) -> String {
+        format!("{}, {}", self.city, self.state_id)
+    }
 }
 impl From<LocationDocument> for Location {
     /// Convert the [LocationDocument] into a [Location].
     fn from(md: LocationDocument) -> Self {
         Self {
-            name: format!("{}, {}", md.city, md.state_id),
+            name: md.get_name(),
             city: md.city,
             state_id: md.state_id,
             state: md.state,
@@ -319,61 +325,61 @@ mod tests {
     use crate::backend::testlib;
     #[test]
     fn location_valid() {
-        let mut location = LocationDocument {
+        let mut document = LocationDocument {
             city: "city".to_string(),
             state_id: "abrev_state".to_string(),
             state: "state".to_string(),
-            name: "name".to_string(),
+            name: Default::default(),
             alias: "alias".to_string(),
             latitude: "0".to_string(),
             longitude: "0".to_string(),
             tz: "utc".to_string(),
             valid: false,
         };
-        assert!(location.ok(0));
-        assert!(location.valid);
+        assert!(document.ok(0));
+        assert!(document.valid);
         // city
-        location.city = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.city = "city".to_string();
-        assert!(location.ok(0));
+        document.city = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.city = "city".to_string();
+        assert!(document.ok(0));
         // short state
-        location.state_id = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.state_id = "XX".to_string();
-        assert!(location.ok(0));
+        document.state_id = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.state_id = "XX".to_string();
+        assert!(document.ok(0));
         // short state
-        location.state = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.state = "state".to_string();
-        assert!(location.ok(0));
+        document.state = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.state = "state".to_string();
+        assert!(document.ok(0));
         // alias
-        location.alias = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.alias = "alias".to_string();
-        assert!(location.ok(0));
+        document.alias = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.alias = "alias".to_string();
+        assert!(document.ok(0));
         // latitude
-        location.latitude = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.latitude = "0".to_string();
-        assert!(location.ok(0));
+        document.latitude = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.latitude = "0".to_string();
+        assert!(document.ok(0));
         // longitude
-        location.longitude = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.longitude = "0".to_string();
-        assert!(location.ok(0));
+        document.longitude = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.longitude = "0".to_string();
+        assert!(document.ok(0));
         // longitude
-        location.tz = Default::default();
-        assert!(!location.ok(0));
-        assert!(!location.valid);
-        location.tz = "utc".to_string();
-        assert!(location.ok(0));
+        document.tz = Default::default();
+        assert!(!document.ok(0));
+        assert!(!document.valid);
+        document.tz = "utc".to_string();
+        assert!(document.ok(0));
     }
 
     #[test]

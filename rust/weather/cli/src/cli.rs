@@ -13,11 +13,7 @@
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use std::{io, path::PathBuf};
 use toolslib::logs;
-use weather_lib::{
-    admin_prelude::create_weather_admin,
-    location_filter, location_filters,
-    prelude::{create_weather_data, LocationFilters, WeatherData},
-};
+use weather_lib::prelude::{create_weather_data, Configuration, LocationFilter, WeatherData};
 
 mod admin;
 use admin::Admin;
@@ -41,12 +37,12 @@ impl std::fmt::Display for Error {
 }
 impl From<String> for Error {
     fn from(error: String) -> Self {
-        Error::from(error.as_str())
+        Error(error)
     }
 }
 impl From<&str> for Error {
     fn from(error: &str) -> Self {
-        Error(format!("cli: {error}"))
+        Error(error.to_string())
     }
 }
 impl From<weather_lib::Error> for Error {
@@ -74,7 +70,7 @@ impl From<termui_lib::Error> for Error {
 ///
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(crate::cli::Error::from(format!($($arg)*)))
+        Err(crate::cli::Error(format!($($arg)*)))
     };
 }
 use err;
@@ -169,11 +165,28 @@ fn run(mut args: ArgMatches) -> Result<()> {
 ///
 /// * `command_args` holds the common command line arguments.
 /// * `args` holds the arguments from the parsed command line.
-/// 
+///
 fn run_admin(command_args: CommandLineArgs, args: ArgMatches) -> Result<()> {
-    let weather_dir = command_args.weather_dir();
-    let weather_admin = create_weather_admin(weather_dir)?;
-    Admin::run(&weather_admin, args)
+    let configuration = configuration(command_args)?;
+    Admin::run(configuration, args)
+}
+
+/// Creates the configuration properties using the command line arguments.
+///
+/// # Arguments
+///
+/// * `command_args` holds the common command line arguments.
+///
+fn configuration(command_args: CommandLineArgs) -> Result<Configuration> {
+    let mut configuration = match command_args.config_file() {
+        Some(config_file) => Configuration::try_from(config_file.as_path())?,
+        None => Configuration::load_default()?,
+    };
+    if let Some(directory) = command_args.weather_dir() {
+        configuration.weather_data.directory = directory.display().to_string();
+    }
+    configuration.weather_data.fs_only = command_args.fs_only();
+    Ok(configuration)
 }
 
 /// Run the appropriate admin command.
@@ -187,8 +200,8 @@ fn run_admin(command_args: CommandLineArgs, args: ArgMatches) -> Result<()> {
 fn run_user(name: &str, command_args: CommandLineArgs, args: ArgMatches) -> Result<()> {
     let config_file = command_args.config_file();
     let weather_dir = command_args.weather_dir();
-    let no_db = command_args.no_db();
-    let weather_data = create_weather_data(config_file, weather_dir, no_db)?;
+    let fs_only = command_args.fs_only();
+    let weather_data = create_weather_data(config_file, weather_dir, fs_only)?;
     match name {
         TerminalUI::NAME => TerminalUI::run_tui(weather_data, args),
         _ => User::run(&weather_data, name, args),
@@ -207,7 +220,7 @@ fn run_user(name: &str, command_args: CommandLineArgs, args: ArgMatches) -> Resu
 /// # Arguments
 ///
 /// * `filename` - the filename as entered on the command line.
-/// 
+///
 pub fn parse_filename(filename: &str) -> std::result::Result<PathBuf, String> {
     if filename.is_empty() {
         Err("The filename cannot be empty.".to_string())
@@ -295,7 +308,7 @@ impl<'a> CommandLineArgs<'a> {
                 .value_name("FILE")
                 // .require_equals(true)
                 .value_parser(parse_filename)
-                .help("The configuration file pathname (DEFAULT weather.toml)."),
+                .help("The configuration file pathname."),
             Arg::new(Self::WEATHER_DIR)
                 .short('d')
                 .long("directory")
@@ -361,7 +374,7 @@ impl<'a> CommandLineArgs<'a> {
         self.0.get_flag(Self::APPEND)
     }
     /// Get the use a database configuration flag.
-    pub fn no_db(&self) -> bool {
+    pub fn fs_only(&self) -> bool {
         self.0.get_flag(Self::FS)
     }
     /// Get the logging verbosity flag.
@@ -529,7 +542,7 @@ impl<'a> LocationFilterArgs<'a> {
         self.0.get_one::<String>(Self::STATE).map_or(None, |p| Some(p.clone()))
     }
 
-    pub fn as_location_filters(&self) -> LocationFilters {
+    pub fn as_location_filters(&self) -> Option<Vec<LocationFilter>> {
         let city = self.city_name();
         let state = self.state_name();
         match self.location_names() {
@@ -537,7 +550,7 @@ impl<'a> LocationFilterArgs<'a> {
                 let filters = names
                     .iter()
                     .map(|name| {
-                        let mut filter = location_filter!(name = name);
+                        let mut filter = LocationFilter::name(name);
                         if let Some(city) = &city {
                             filter = filter.with_city(city);
                         }
@@ -547,13 +560,13 @@ impl<'a> LocationFilterArgs<'a> {
                         filter
                     })
                     .collect::<Vec<_>>();
-                LocationFilters::new(filters)
+                Some(filters)
             }
             None => match (city, state) {
-                (Some(city), Some(state)) => location_filters![location_filter!(city = &city, state = &state)],
-                (Some(city), None) => location_filters![location_filter!(city = &city)],
-                (None, Some(state)) => location_filters![location_filter!(state = &state)],
-                _ => LocationFilters::default(),
+                (Some(city), Some(state)) => Some(vec![LocationFilter::city(&city).with_state(&state)]),
+                (Some(city), None) => Some(vec![LocationFilter::city(&city)]),
+                (None, Some(state)) => Some(vec![LocationFilter::state(&state)]),
+                _ => None,
             },
         }
     }
@@ -642,7 +655,7 @@ mod tests {
         assert!(command_args.weather_dir().is_none());
         assert!(command_args.logfile().is_none());
         assert!(!command_args.append());
-        assert!(!command_args.no_db());
+        assert!(!command_args.fs_only());
         assert_eq!(command_args.verbosity(), 0);
         let known_dir = env!("CARGO_MANIFEST_DIR");
         let dir = format!("-d={}", known_dir);
@@ -651,7 +664,7 @@ mod tests {
         assert_eq!(command_args.weather_dir().unwrap(), PathBuf::from(known_dir));
         assert_eq!(command_args.logfile().unwrap(), PathBuf::from("logfile"));
         assert!(command_args.append());
-        assert!(command_args.no_db());
+        assert!(command_args.fs_only());
         assert_eq!(command_args.verbosity(), 3)
     }
 
@@ -660,31 +673,31 @@ mod tests {
         let mut cmd = command!(Command::new("testcase").args(LocationFilterArgs::get()));
 
         let matches = arg_matches!(cmd, &["testcase"]);
-        assert!(LocationFilterArgs::new(&matches).as_location_filters().is_empty());
+        assert!(LocationFilterArgs::new(&matches).as_location_filters().is_none());
 
         let matches = arg_matches!(cmd, &["testcase", "-c=city"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().into_iter().collect::<Vec<_>>();
+        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
         assert_eq!(testcase.len(), 1);
         assert_eq!(testcase[0].city, Some("city".into()));
         assert!(testcase[0].state.is_none());
         assert!(testcase[0].name.is_none());
 
         let matches = arg_matches!(cmd, &["testcase", "-s=state"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().into_iter().collect::<Vec<_>>();
+        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
         assert_eq!(testcase.len(), 1);
         assert!(testcase[0].city.is_none());
         assert_eq!(testcase[0].state, Some("state".into()));
         assert!(testcase[0].name.is_none());
 
         let matches = arg_matches!(cmd, &["testcase", "-c=city", "-s=state"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().into_iter().collect::<Vec<_>>();
+        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
         assert_eq!(testcase.len(), 1);
         assert_eq!(testcase[0].city, Some("city".into()));
         assert_eq!(testcase[0].state, Some("state".into()));
         assert!(testcase[0].name.is_none());
 
         let matches = arg_matches!(cmd, &["testcase", "-c=city", "-s=state", "foo", "bar"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().into_iter().collect::<Vec<_>>();
+        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
         assert_eq!(testcase.len(), 2);
         assert_eq!(testcase[0].city, Some("city".into()));
         assert_eq!(testcase[0].state, Some("state".into()));

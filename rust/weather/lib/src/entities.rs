@@ -1,5 +1,6 @@
 //! Structures used by the weather data `API`s.
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+
+use chrono::{Datelike, Days, NaiveDate, NaiveDateTime};
 
 /// A locations daily weather history.
 #[derive(Debug)]
@@ -53,9 +54,18 @@ pub struct Location {
     /// the location timezone.
     pub tz: String,
 }
+impl std::fmt::Display for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self.name.is_empty() {
+            true => "unknown",
+            false => &self.name,
+        };
+        write!(f, "{name} ({})", self.alias)
+    }
+}
 
 /// The data that identifies selection of a location or locations.
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct LocationFilter {
     /// A location can be searched by the city name.
     pub city: Option<String>,
@@ -66,20 +76,45 @@ pub struct LocationFilter {
     /// A location can be searched for by its name or alias.
     pub name: Option<String>,
 }
-impl Default for LocationFilter {
-    fn default() -> Self {
-        Self { city: None, state: None, name: None }
-    }
-}
 impl LocationFilter {
+    /// Create a new location filter initialized with a city name.
+    ///
+    /// # Arguments
+    ///
+    /// * `city` is the name of the city.
+    ///
+    pub fn city(city: impl Into<String>) -> LocationFilter {
+        Self { city: Some(city.into()), state: None, name: None }
+    }
+
+    /// Create a new location filter initialized with a state name.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` is the name of the state.
+    ///
+    pub fn state(state: impl Into<String>) -> LocationFilter {
+        Self { city: None, state: Some(state.into()), name: None }
+    }
+
+    /// Create a new location filter initialized with a location name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` is the name of the state.
+    ///
+    pub fn name(name: impl Into<String>) -> LocationFilter {
+        Self { city: None, state: None, name: Some(name.into()) }
+    }
+
     /// A builder method that adds a city name to the filter.
     ///
     /// # Arguments
     ///
     /// * `city` is the name of the city.
     ///
-    pub fn with_city(mut self, city: &str) -> Self {
-        self.city.replace(String::from(city));
+    pub fn with_city(mut self, city: impl Into<String>) -> Self {
+        self.city.replace(city.into());
         self
     }
 
@@ -89,8 +124,8 @@ impl LocationFilter {
     ///
     /// * `state` is the name of the state.
     ///
-    pub fn with_state(mut self, state: &str) -> Self {
-        self.state.replace(String::from(state));
+    pub fn with_state(mut self, state: impl Into<String>) -> Self {
+        self.state.replace(state.into());
         self
     }
 
@@ -100,8 +135,8 @@ impl LocationFilter {
     ///
     /// * `name` is the name of the location.
     ///
-    pub fn with_name(mut self, name: &str) -> Self {
-        self.name.replace(String::from(name));
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name.replace(name.into());
         self
     }
 
@@ -109,91 +144,6 @@ impl LocationFilter {
     ///
     pub fn is_none(&self) -> bool {
         self.city.is_none() && self.state.is_none() && self.name.is_none()
-    }
-}
-
-/// The location filter macro provides a simple front end to the [LocationFilter] builder.
-///
-#[macro_export]
-macro_rules! location_filter {
-    (city=$city:expr, state=$state:expr) => {
-        $crate::prelude::LocationFilter::default().with_city($city).with_state($state)
-    };
-    (city=$city:expr) => {
-        $crate::prelude::LocationFilter::default().with_city($city)
-    };
-    (state=$state:expr) => {
-        $crate::prelude::LocationFilter::default().with_state($state)
-    };
-    (name=$name:expr) => {
-        $crate::prelude::LocationFilter::default().with_name($name)
-    };
-    () => {
-        $crate::prelude::LocationFilter::default()
-    };
-}
-
-/// The collection of location filters. Originally this was defined as a type but having
-/// a concrete class helps a bit with the Python library.
-///
-pub struct LocationFilters(
-    /// The collection of location filters.
-    Vec<LocationFilter>,
-);
-impl Default for LocationFilters {
-    /// The default will have an empty collection of filters.
-    fn default() -> Self {
-        Self(vec![])
-    }
-}
-impl IntoIterator for LocationFilters {
-    type Item = LocationFilter;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-    /// Return the collection of filters as an iterator.
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-impl LocationFilters {
-    /// Create a new instance of the filters.
-    ///
-    /// # Arguments
-    ///
-    /// * `filters` is the collection of location filters.
-    ///
-    pub fn new(filters: Vec<LocationFilter>) -> Self {
-        Self(filters)
-    }
-
-    /// This will return true if there are no filters available.
-    ///
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Return an iterator over the filter collection.
-    ///
-    pub fn iter(&self) -> std::slice::Iter<LocationFilter> {
-        self.0.iter()
-    }
-
-    /// Return a mutable iterator over the filter collection.
-    ///
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<LocationFilter> {
-        self.0.iter_mut()
-    }
-}
-
-/// The location filters macro provides a front-end to creating a location filters instance.
-///
-#[macro_export]
-macro_rules! location_filters {
-    () => {
-        $crate::prelude::LocationFilters::default()
-    };
-    // lets this macro act like the vec! macro
-    ($($x:expr),+ $(,)?) => {
-        $crate::prelude::LocationFilters::new(vec![$($x),+])
     }
 }
 
@@ -411,12 +361,12 @@ impl DateRanges {
                             false => self_.date_ranges.push(date_range),
                             true => match last_date_range.is_one_year() || last_date_range.is_multi_year() {
                                 false => self_.date_ranges.push(date_range),
-                                true => match next_day!(last_date_range.end) == date_range.start{
+                                true => match next_day!(last_date_range.end) == date_range.start {
                                     false => self_.date_ranges.push(date_range),
-                                    true => last_date_range.end = date_range.end
-                                }
-                            }
-                        }
+                                    true => last_date_range.end = date_range.end,
+                                },
+                            },
+                        },
                     }
                 }
                 self_
@@ -508,16 +458,37 @@ impl IntoIterator for &DateRange {
 }
 impl std::fmt::Display for DateRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let fmt: &'static str = "%b-%d-%Y";
+        const DAY_FMT: &'static str = "%b-%d-%Y";
+        const MONTH_FMT: &'static str = "%b-%Y";
         if self.is_one_day() {
-            write!(f, "{}", self.start.format(fmt))
-        } else if self.is_one_year() {
-            write!(f, "{:04}", self.start.year())
-        } else if self.is_multi_year() {
-            write!(f, "{:04} thru {:04}", self.start.year(), self.end.year())
-        } else {
-            write!(f, "{} thru {}", self.start.format(fmt), self.end.format(fmt))
+            return write!(f, "{}", self.start.format(DAY_FMT));
         }
+        if self.is_one_year() {
+            return write!(f, "{:04}", self.start.year());
+        }
+        if self.is_multi_year() {
+            return write!(f, "{:04} thru {:04}", self.start.year(), self.end.year());
+        }
+        let is_at_som = self.start.day() == 1;
+        let is_at_eom = self.end.checked_add_days(Days::new(1)).unwrap().day() == 1;
+        if is_at_som && is_at_eom {
+            return if self.start.year() == self.end.year() && self.start.month() == self.end.month() {
+                write!(f, "{}", self.start.format(MONTH_FMT))
+            } else {
+                write!(f, "{} thru {}", self.start.format(MONTH_FMT), self.end.format(MONTH_FMT))
+            };
+        }
+        let is_different_year_or_month = self.start.year() != self.end.year() || self.start.month() != self.end.month();
+        if is_at_som {
+            if is_different_year_or_month {
+                return write!(f, "{} thru {}", self.start.format(MONTH_FMT), self.end.format(DAY_FMT));
+            }
+        } else if is_at_eom {
+            if is_different_year_or_month {
+                return write!(f, "{} thru {}", self.start.format(DAY_FMT), self.end.format(MONTH_FMT));
+            }
+        }
+        write!(f, "{} thru {}", self.start.format(DAY_FMT), self.end.format(DAY_FMT))
     }
 }
 
@@ -616,15 +587,26 @@ mod tests {
 
     #[test]
     fn date_range_to_string() {
-        macro_rules! date_range {
-            ($start:expr, $end:expr) => {
-                DateRange::new(get_date($start.0, $start.1, $start.2), get_date($end.0, $end.1, $end.2))
+        macro_rules! date {
+            ($y:expr, $m:expr, $d:expr) => {
+                NaiveDate::from_ymd_opt($y, $m, $d).unwrap()
             };
         }
-        assert_eq!(date_range!((2020, 1, 1), (2020, 1, 1)).to_string(), "Jan-01-2020");
-        assert_eq!(date_range!((2020, 1, 1), (2020, 12, 31)).to_string(), "2020");
-        assert_eq!(date_range!((2020, 1, 1), (2021, 12, 31)).to_string(), "2020 thru 2021");
-        assert_eq!(date_range!((2020, 1, 1), (2022, 1, 1)).to_string(), "Jan-01-2020 thru Jan-01-2022");
+        macro_rules! testcase {
+            ($start: expr, $end: expr) => {
+                DateRange::new($start, $end).to_string()
+            };
+        }
+        assert_eq!(testcase!(date!(2025, 11, 18), date!(2025, 11, 18)), "Nov-18-2025");
+        assert_eq!(testcase!(date!(2025, 11, 2), date!(2025, 11, 30)), "Nov-02-2025 thru Nov-30-2025");
+        assert_eq!(testcase!(date!(2025, 11, 1), date!(2025, 11, 29)), "Nov-01-2025 thru Nov-29-2025");
+        assert_eq!(testcase!(date!(2025, 1, 1), date!(2025, 12, 31)), "2025");
+        assert_eq!(testcase!(date!(2024, 1, 1), date!(2025, 12, 31)), "2024 thru 2025");
+        assert_eq!(testcase!(date!(2025, 11, 1), date!(2025, 11, 30)), "Nov-2025");
+        assert_eq!(testcase!(date!(2024, 11, 1), date!(2025, 11, 30)), "Nov-2024 thru Nov-2025");
+        assert_eq!(testcase!(date!(2025, 11, 1), date!(2025, 12, 1)), "Nov-2025 thru Dec-01-2025");
+        assert_eq!(testcase!(date!(2025, 11, 30), date!(2025, 12, 31)), "Nov-30-2025 thru Dec-2025");
+        assert_eq!(testcase!(date!(2024, 11, 30), date!(2025, 12, 31)), "Nov-30-2024 thru Dec-2025");
     }
 
     #[test]
@@ -673,30 +655,6 @@ mod tests {
         assert!(testcase.city.is_none());
         assert!(testcase.state.is_none());
         assert_eq!(testcase.name.unwrap(), "name");
-    }
-
-    #[test]
-    fn location_filter_macro() {
-        let testcase = location_filter!();
-        assert!(testcase.is_none());
-
-        let testcase = location_filter!(city = "City");
-        assert!(!testcase.is_none());
-        assert_eq!(testcase.city.unwrap(), "City");
-        assert!(testcase.state.is_none());
-        assert!(testcase.name.is_none());
-
-        let testcase = location_filter!(state = "State");
-        assert!(!testcase.is_none());
-        assert!(testcase.city.is_none());
-        assert_eq!(testcase.state.unwrap(), "State");
-        assert!(testcase.name.is_none());
-
-        let testcase = location_filter!(name = "Name");
-        assert!(!testcase.is_none());
-        assert!(testcase.city.is_none());
-        assert!(testcase.state.is_none());
-        assert_eq!(testcase.name.unwrap(), "Name");
     }
 
     #[test]

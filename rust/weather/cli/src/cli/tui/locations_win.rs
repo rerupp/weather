@@ -12,10 +12,7 @@ use termui_lib::prelude::{
     beep, break_event, log_key_pressed, log_render, Control, ControlResult, ControlState, DialogResult, DialogWindow,
     ReportView,
 };
-use weather_lib::{
-    location_filters,
-    prelude::{Location, WeatherData},
-};
+use weather_lib::prelude::{Location, WeatherData};
 
 mod add_history;
 mod context_menu;
@@ -211,7 +208,7 @@ impl DialogWindow for LocationsWindow {
     fn refresh(&mut self) -> Result<(), String> {
         // let the old locations_win and view go
         self.locations_view.take();
-        match self.weather_data.get_locations(location_filters![]) {
+        match self.weather_data.get_locations(None) {
             Ok(locations) => {
                 let report = reports::text::Report::default().generate(&locations);
                 let view = ReportView::new(report, None).with_show_selected(true).with_active(self.active);

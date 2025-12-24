@@ -1,47 +1,38 @@
 //! The implementations of weather data.
 
+pub(crate) mod admin;
 mod db;
 mod filesys;
-
-pub use config::Config;
-pub mod admin;
-mod config;
+pub(crate) use filesys::WeatherDir;
 
 use crate::prelude::{
-    DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilters, State, CityFilter,
+    CityFilter, Configuration, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter,
+    State,
 };
-use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Get the backend implementation of weather data.
 ///
 /// # Arguments
 ///
-/// * `config_file` is the weather data configuration filename.
-/// * `dirname` is the weather data directory name override.
-/// * `no_db` forces the filesys backend to be used.
+/// * `configuration` is the weather data configuration properties.
 ///
-pub fn create(config_file: Option<PathBuf>, dirname: Option<PathBuf>, no_db: bool) -> crate::Result<Box<dyn Backend>> {
-    let mut config = Config::new(config_file)?;
-    if let Some(path) = dirname {
-        config.weather_data.directory = path.display().to_string();
-    }
-    let weather_dir = filesys::WeatherDir::try_from(&config)?;
-    if no_db {
-        filesys::create_filesys_backend(config)
-    } else if db::is_available(&weather_dir) {
-        db::create_db_backend(config)
+pub fn create_backend(configuration: Arc<Configuration>) -> crate::Result<Box<dyn Backend>> {
+    if configuration.weather_data.fs_only {
+        filesys::create_filesys_backend(configuration)
     } else {
-        filesys::create_filesys_backend(config)
+        let weather_dir = filesys::WeatherDir::try_from(&configuration)?;
+        if db::is_available(&weather_dir) {
+            db::create_db_backend(configuration)
+        } else {
+            filesys::create_filesys_backend(configuration)
+        }
     }
 }
 
 /// The weather data API for backend implementations.
 ///
 pub(crate) trait Backend: Send + Sync {
-    /// Get the weather data configuration.
-    ///
-    fn get_config(&self) -> &Config;
-
     /// Add weather data history to a location.
     ///
     /// # Arguments
@@ -57,11 +48,10 @@ pub(crate) trait Backend: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// - `filters` identifies the location.
+    /// - `filter` identifies the location.
     /// - `history_range` covers the history dates returned.
     ///
-    // todo: change this to allow multiple locations or change to the location alias
-    fn get_daily_histories(&self, filters: LocationFilters, history_range: DateRange) -> crate::Result<DailyHistories>;
+    fn get_daily_histories(&self, filter: LocationFilter, history_range: DateRange) -> crate::Result<DailyHistories>;
 
     /// Get the history dates for locations.
     ///
@@ -69,7 +59,7 @@ pub(crate) trait Backend: Send + Sync {
     ///
     /// - `filters` identifies the locations.
     ///
-    fn get_history_dates(&self, filters: LocationFilters) -> crate::Result<Vec<HistoryDates>>;
+    fn get_history_dates(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistoryDates>>;
 
     /// Get a summary of location weather data.
     ///
@@ -77,7 +67,7 @@ pub(crate) trait Backend: Send + Sync {
     ///
     /// - `filters` identifies the locations.
     ///
-    fn get_history_summaries(&self, filters: LocationFilters) -> crate::Result<Vec<HistorySummaries>>;
+    fn get_history_summaries(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistorySummaries>>;
 
     /// Get the weather location metadata.
     ///
@@ -85,7 +75,7 @@ pub(crate) trait Backend: Send + Sync {
     ///
     /// - `filters` identifies the locations of interest.
     ///
-    fn get_locations(&self, filters: LocationFilters) -> crate::Result<Vec<Location>>;
+    fn get_locations(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<Location>>;
 
     /// Add a location.
     ///
@@ -94,6 +84,22 @@ pub(crate) trait Backend: Send + Sync {
     /// * `location` is the location data.
     ///
     fn add_location(&self, location: Location) -> crate::Result<()>;
+
+    /// Delete a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` is used to get the location.
+    ///
+    fn delete_location(&self, filter: LocationFilter) -> crate::Result<()>;
+
+    /// Update a location properties.
+    ///
+    /// # Arguments
+    ///
+    /// * `location` identifies the location and contains the new property values.
+    ///
+    fn update_location(&self, location: Location) -> crate::Result<bool>;
 
     /// Search for a location.
     ///
@@ -109,18 +115,19 @@ pub(crate) trait Backend: Send + Sync {
 }
 
 #[cfg(test)]
-mod testlib {
+pub(crate) mod testlib {
     //! A library for common utilities used by the backend.
 
     use rand::Rng;
     use std::{env, fmt, fs, path};
+    use crate::backend::WeatherDir;
 
     /// Used to create a temporary weather directory and delete it as part of the function exit.
     #[derive(Debug)]
-    pub(in crate::backend) struct TestFixture(path::PathBuf);
+    pub(crate) struct TestFixture(path::PathBuf);
     impl TestFixture {
         /// Creates a test weather directory or panics if a unique directory cannot be created.
-        pub(in crate::backend) fn create() -> Self {
+        pub(crate) fn create() -> Self {
             let tmpdir = env::temp_dir();
             let mut weather_dir: Option<path::PathBuf> = None;
             // try to create a test directory 10 times
@@ -146,7 +153,7 @@ mod testlib {
                 None => panic!("Tried 10 times to get a unique test directory name and failed..."),
             }
         }
-        pub(in crate::backend) fn copy_resources(&self, source: &path::PathBuf) {
+        pub(crate) fn copy_resources(&self, source: &path::PathBuf) {
             if source.is_file() {
                 let target = self.0.join(source.file_name().unwrap().to_str().unwrap());
                 if let Err(err) = fs::copy(source, &target) {
@@ -182,8 +189,13 @@ mod testlib {
             path::PathBuf::from(value.to_string())
         }
     }
+    impl From<&TestFixture> for WeatherDir {
+        fn from(fixture: &TestFixture) -> Self {
+            WeatherDir::try_from(fixture.to_string()).unwrap()
+        }
+    }
 
-    pub(in crate::backend) fn generate_random_string(len: usize) -> String {
+    pub(crate) fn generate_random_string(len: usize) -> String {
         let mut rand = rand::rng();
         const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmonopqrstuvwxyz0123456789";
         let random_string = (0..len)
@@ -196,7 +208,7 @@ mod testlib {
         random_string
     }
 
-    pub(in crate::backend) fn test_resources() -> path::PathBuf {
+    pub(crate) fn test_resources() -> path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join("tests")
     }
 }

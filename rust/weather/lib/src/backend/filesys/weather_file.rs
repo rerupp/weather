@@ -155,7 +155,7 @@ mod test {
     fn weather_file() {
         let fixture = testlib::TestFixture::create();
         let filename = "test_file.dat";
-        let mut testcase = WeatherFile::new(PathBuf::from(&fixture).join(filename));
+        let testcase = WeatherFile::new(PathBuf::from(&fixture).join(filename));
         // verify metadata for a file that does not exist
         assert_eq!(testcase.filename, filename);
         assert!(!testcase.exists());
@@ -168,7 +168,7 @@ mod test {
         assert_eq!(testcase.size(), content.len() as u64);
         // verify reading the file content
         let mut file_content = String::new();
-        let mut reader = testcase.reader().unwrap().read_to_string(&mut file_content).unwrap();
+        testcase.reader().unwrap().read_to_string(&mut file_content).unwrap();
         assert_eq!(&file_content, content);
     }
 }

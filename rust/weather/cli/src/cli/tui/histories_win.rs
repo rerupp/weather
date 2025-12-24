@@ -10,7 +10,7 @@ use termui_lib::prelude::{
     beep, break_event, log_key_pressed, log_render, Control, ControlResult, ControlState, DialogResult, DialogWindow,
     ReportView,
 };
-use weather_lib::{location_filters, prelude::WeatherData};
+use weather_lib::prelude::WeatherData;
 
 /// The main tab window showing the location history dates that are available.
 ///
@@ -62,7 +62,7 @@ impl DialogWindow for HistoriesWindow {
     ///
     fn refresh(&mut self) -> Result<(), String> {
         self.report.take();
-        match self.weather_data.get_history_dates(location_filters![]) {
+        match self.weather_data.get_history_dates(None) {
             Ok(history_dates) => {
                 // let report = reports::text::Report::default().with_date_format("%b-%d-%Y").generate(history_dates);
                 let report = reports::text::Report::default().generate(history_dates);

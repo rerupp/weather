@@ -112,7 +112,7 @@ impl ArchiveReader<BufReader<File>> {
     /// * `file` is the archive containing of weather data.
     ///
     pub fn open(lid: &str, file: &WeatherFile) -> crate::Result<Self> {
-        Ok(Self { lid: lid.to_string(), archive: archive::open(file)? })
+        Ok(Self { lid: lid.to_string(), archive: archive::reader(file)? })
     }
 
     /// Creates a weather data archive.
@@ -125,12 +125,14 @@ impl ArchiveReader<BufReader<File>> {
     /// * `file` is the container of weather data.
     ///
     pub fn create(lid: &str, file: &WeatherFile) -> crate::Result<Self> {
+        if file.exists() {
+            Err(error!(lid, "archive already exists!"))
         // touch the file
-        if let Err(open_error) = OpenOptions::new().create_new(true).write(true).open(&file.to_string()) {
-            Err(error!(lid, format!("did not create history file {}: {:?}", file, open_error)))
+        } else if let Err(open_error) = OpenOptions::new().create_new(true).write(true).open(&file.to_string()) {
+            Err(error!(lid, format!("did not create history file {}: {open_error}", file.filename)))
         // create the archive
         } else if let Err(zip_error) = ZipWriter::new(file.writer()?).finish() {
-            Err(error!(lid, format!("did not create history archive {}: {:?}", file, zip_error)))
+            Err(error!(lid, format!("did not create history archive {}: {zip_error}", file.filename)))
         } else {
             Self::open(lid, file)
         }

@@ -14,7 +14,7 @@ pub const COMMAND_NAME: &'static str = "ll";
 ///
 pub fn command() -> Command {
     Command::new(COMMAND_NAME)
-        .about("List the known weather data history locations_win.")
+        .about("List weather history locations.")
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
         .args(LocationFilterArgs::get())

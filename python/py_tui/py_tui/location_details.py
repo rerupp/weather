@@ -4,53 +4,29 @@ from py_weather_lib import (PyDailyHistories, PyDateRange, PyHistoryDates, PyLoc
                             PyLocationFilters, PyWeatherData)
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Center, CenterMiddle, Horizontal, Right, Vertical, VerticalGroup
+from textual.containers import Center, CenterMiddle, Container, Horizontal, Vertical, VerticalGroup
 from textual.events import Message, Mount
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView
+from textual.widgets import Button, Footer, Header, Label, ListItem, ListView
 
+from .location_editor import LocationEditor, LocationProperties
 from .message_box import MessageBox
 from .new_histories import NewHistories
 
 
-class LocationProperties(Vertical):
+class PropertiesList(Container):
     DEFAULT_CSS = """
-    LocationProperties {
+    PropertiesList {
         width: auto;
         height: auto;
         align: center middle;
-        #properties-container {
-            align: center middle;
+        VerticalGroup {
             width: auto;
             height: auto;
-        }
-        #properties {
-            margin: 1;
-            width: auto;
-            height: auto;
-            align: center middle;
-        }
-        .property {
-            height: 1;
-            width: auto;
-        }
-        Right {
-            margin-left: 1;
-            width: 10;
-            height: 1;
-        }
-        .lhs {
-            color: $text-secondary;
-        }
-        .rhs {
-            margin-left: 1;
-            margin-right: 1;
-            width: auto;
-            height: 1;
         }
         #modify-properties {
             width: 100%;
             height: auto;
-            padding-bottom: 1;
+            padding-top: 1;
         }
     }
     """
@@ -60,40 +36,21 @@ class LocationProperties(Vertical):
         self._location = location
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="properties-container"):
-            with Center(id="properties"):
-                with Horizontal(classes="property"):
-                    yield Right(Label("Alias:", classes="lhs"))
-                    widget = Input(self._location.alias if self._location else "", id="alias", classes="rhs",
-                                   compact=True, placeholder="Alias name")
-                    widget.can_focus = False
-                    yield widget
-                with Horizontal(classes="property"):
-                    yield Right(Label("State:", classes="lhs"))
-                    widget = Input(self._location.state if self._location else "", id="state", classes="rhs",
-                                   compact=True, placeholder="State name")
-                    widget.can_focus = False
-                    yield widget
-                with Horizontal(classes="property"):
-                    yield Right(Label("Latitude:", classes="lhs"))
-                    widget = Input(self._location.latitude if self._location else "", id="lat", classes="rhs",
-                                   compact=True, placeholder=" ##.#########")
-                    widget.can_focus = False
-                    yield widget
-                with Horizontal(classes="property"):
-                    yield Right(Label("Longitude:", classes="lhs"))
-                    widget = Input(self._location.longitude if self._location else "", id="long", classes="rhs",
-                                   compact=True, placeholder=" ###.#########")
-                    widget.can_focus = False
-                    yield widget
-                with Horizontal(classes="property"):
-                    yield Right(Label("Timezone:", classes="lhs"))
-                    widget = Input(self._location.tz if self._location else "", id="tz", classes="rhs", compact=True,
-                                   placeholder="Timezone name")
-                    widget.can_focus = False
-                    yield widget
+        with VerticalGroup():
+            yield LocationProperties(location=self._location)
             with Center(id="modify-properties"):
                 yield Button("Modify", id="modify", compact=True, variant="primary")
+
+    @on(Button.Pressed)
+    def _new_histories(self, event: Button.Pressed) -> None:
+        event.stop()
+        self.app.push_screen(LocationEditor(self._location, ), self._update_location_properties)
+
+    def _update_location_properties(self, location: PyLocation | None) -> None:
+        if not location:
+            log.debug("modify location cancelled")
+        else:
+            log.debug("location changes: %s", location)
 
 
 class HistoryList(Vertical):
@@ -145,7 +102,8 @@ class HistoryList(Vertical):
         self._update_history_dates()
 
     @on(Button.Pressed)
-    def _new_histories(self) -> None:
+    def _new_histories(self, event: Button.Pressed) -> None:
+        event.stop()
         self.app.push_screen(NewHistories(self._alias, self._weather_data), self._add_history_callback)
 
     @on(AddHistories)
@@ -187,6 +145,7 @@ class LocationDetails(Horizontal):
             border-title-color: $text-secondary;
             border-title-style: bold;
             border-title-align: center;
+            padding: 1;
         }
         #location-histories {
             width: auto;
@@ -207,7 +166,7 @@ class LocationDetails(Horizontal):
         self._location_history_dates = location_history_dates
 
     def compose(self) -> ComposeResult:
-        properties = LocationProperties(id="location-properties", location=self._location_history_dates.location)
+        properties = PropertiesList(id="location-properties", location=self._location_history_dates.location)
         properties.border_title = "Location Properties"
         yield properties
         histories = HistoryList(self._location_history_dates.location.alias, self._location_history_dates.history_dates,

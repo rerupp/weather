@@ -1,51 +1,110 @@
-/// The US Cities administration API.
-/// 
+//! The US Cities administration API.
+
 use crate::{
-    backend::db::sqlite::{commit_tx, create_tx, err, execute_sql, prepare_sql, query_rows, SqlResult},
+    admin_prelude::UsCityDetails,
+    backend::{
+        db::sqlite::{commit_tx, create_tx, db_connection, err, execute_sql, prepare_sql, query_rows, SqlResult},
+        filesys::{WeatherDir, WeatherFile},
+    },
     entities::State,
-    LogElapsedTime
+    LogElapsedTime,
 };
 use csv::{Reader, StringRecord};
-use rusqlite::{named_params, Connection, Row, Statement, Transaction, };
+use rusqlite::{named_params, Connection, Row, Statement, Transaction};
 use sql_query_builder as sql;
 use std::path::PathBuf;
 
-/// Initialize the US Cities database schema.
-///
-/// # Arguments
-///
-/// * `conn` is the database connection that will be used.
-///
-pub fn init_schema(conn: &Connection) -> crate::Result<()> {
-    let schema_sql = include_str!("schema.sql");
-    if let Err(error) = conn.execute_batch(schema_sql) {
-        err!("failed to initialize US Cities database schema: {:?}", error)?;
-    }
-    Ok(())
+pub struct UsCitiesAdmin {
+    db_file: WeatherFile,
 }
-
-/// Load the US Cities database.
-///
-/// # Arguments
-///
-/// * `conn` is the database connection that will be used.
-/// * `path` is the US Cities source data.
-///
-pub fn load_db(conn: &mut Connection, path: PathBuf) -> crate::Result<usize> {
-    crate::log_elapsed_time!("load_db");
-    let cities = load_cities_source(&path)?;
-    let tx = create_tx!(conn, "failed to create US Cities load transaction")?;
-    let states = insert_states(&tx, &cities)?;
-    let insert_timer = LogElapsedTime::new("CityWriter", Some(log::Level::Debug));
-    let mut writer = CityWriter::new(&tx, states)?;
-    for city in cities {
-        writer.add_city(city)?;
+impl UsCitiesAdmin {
+    pub fn new(weather_dir: &WeatherDir) -> Self {
+        Self { db_file: weather_dir.file(super::DB_FILENAME) }
     }
-    drop(insert_timer);
-    let count = writer.count;
-    drop(writer);
-    commit_tx!(tx, "failed to commit US Cities load")?;
-    Ok(count)
+    /// Initialize the US Cities database schema.
+    ///
+    pub fn init_schema(&self) -> crate::Result<()> {
+        let conn = self.db_conn()?;
+        let schema_sql = include_str!("schema.sql");
+        if let Err(error) = conn.execute_batch(schema_sql) {
+            err!("failed to initialize US Cities database schema: {:?}", error)?;
+        }
+        Ok(())
+    }
+    /// Delete the US Cities database
+    ///
+    pub fn delete(&self) -> crate::Result<()> {
+        if self.db_file.exists() {
+            if let Err(error) = self.db_file.remove() {
+                err!("failed to delete database file: {:?}", error)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get a connection to the US cities database.
+    ///
+    fn db_conn(&self) -> crate::Result<Connection> {
+        db_connection(Some(&self.db_file))
+    }
+    /// Load the US Cities database.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` is the US Cities source data filename.
+    ///
+    pub fn load_db(&self, source: &str) -> crate::Result<usize> {
+        if !self.is_initialized() {
+            err!("The database schema has not been initialized!")?;
+        }
+        crate::log_elapsed_time!("load_db");
+        let cities = load_cities_source(source)?;
+        let mut conn = self.db_conn()?;
+        let tx = create_tx!(conn, "failed to create US Cities load transaction")?;
+        let states = insert_states(&tx, &cities)?;
+        let insert_timer = LogElapsedTime::new("CityWriter", Some(log::Level::Debug));
+        let mut writer = CityWriter::new(&tx, states)?;
+        for city in cities {
+            writer.add_city(city)?;
+        }
+        drop(insert_timer);
+        let count = writer.count;
+        drop(writer);
+        commit_tx!(tx, "failed to commit US Cities load")?;
+        Ok(count)
+    }
+    /// Get the database details.
+    ///
+    pub fn db_details(&self) -> crate::Result<UsCityDetails> {
+        if self.db_file.exists() {
+            let db_size = self.db_file.size() as usize;
+            let conn = self.db_conn()?;
+            let state_info = state_metrics(&conn)?;
+            Ok(UsCityDetails { db_size, state_info })
+        } else {
+            Ok(UsCityDetails { db_size: 0, state_info: Vec::with_capacity(0) })
+        }
+    }
+
+    /// Check if the schema has been initialized.
+    ///
+    fn is_initialized(&self) -> bool {
+        let mut initialized = false;
+        if self.db_file.exists() {
+            match self.db_conn() {
+                Err(error) => log::error!("Failed to get US cities connection: {}", error),
+                Ok(conn) => {
+                    // unless things are AFU checking if one of the tables exist should be enough
+                    let query = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cities')";
+                    match conn.query_one(query, [], |row| row.get::<_, i64>(0)) {
+                        Err(error) => log::error!("{}", error),
+                        Ok(exists) => initialized = exists > 0,
+                    }
+                }
+            }
+        }
+        initialized
+    }
 }
 
 /// The metadata mined from the US Cities CSV file.
@@ -97,9 +156,10 @@ impl From<&City> for State {
 ///
 /// # Arguments
 ///
-/// * `path` is the US Cities source file.
+/// * `source` is the US Cities source filename.
 ///
-fn load_cities_source(path: &PathBuf) -> crate::Result<Vec<City>> {
+fn load_cities_source(source: &str) -> crate::Result<Vec<City>> {
+    let path = PathBuf::from(source);
     crate::log_elapsed_time!("load_source");
     if !path.exists() {
         err!("source file '{}' was not found.", path.display())
@@ -122,7 +182,7 @@ fn load_cities_source(path: &PathBuf) -> crate::Result<Vec<City>> {
                             } else {
                                 cities.push(city);
                             }
-                        },
+                        }
                     }
                 }
                 Ok(cities)
@@ -151,18 +211,14 @@ fn insert_states(tx: &Transaction, cities: &Vec<City>) -> crate::Result<Vec<Stat
     crate::log_elapsed_time!("insert_states");
     // collect the state information
     let mut rows: Vec<StatesRow> = vec![];
-    cities
-        .iter()
-        .for_each(|city| {
-            if !rows.iter().any(|row| &row.state.name == &city.state && &row.state.state_id == &city.state_id) {
-                rows.push(StatesRow{ id: 0, state: State::from(city) });
-            }
-        });
-    rows.sort_unstable_by(|lhs, rhs| {
-        match lhs.state.name.cmp(&rhs.state.name) {
-            std::cmp::Ordering::Equal => lhs.state.state_id.cmp(&rhs.state.state_id),
-            ordering => ordering,
+    cities.iter().for_each(|city| {
+        if !rows.iter().any(|row| &row.state.name == &city.state && &row.state.state_id == &city.state_id) {
+            rows.push(StatesRow { id: 0, state: State::from(city) });
         }
+    });
+    rows.sort_unstable_by(|lhs, rhs| match lhs.state.name.cmp(&rhs.state.name) {
+        std::cmp::Ordering::Equal => lhs.state.state_id.cmp(&rhs.state.state_id),
+        ordering => ordering,
     });
 
     // set the primary id for each row
@@ -216,10 +272,7 @@ impl<'t> CityWriter<'t> {
     ///
     fn add_city(&mut self, city: City) -> crate::Result<()> {
         // find the city states row.
-        let states_id = self.states
-            .iter()
-            .find(|row| &row.state.name == &city.state )
-            .map(|row| row.id);
+        let states_id = self.states.iter().find(|row| &row.state.name == &city.state).map(|row| row.id);
         // warn someone if the state was not found.
         if states_id.is_none() {
             eprintln!("did not find city state name in states table: {:?}", city);
@@ -293,7 +346,8 @@ impl<'t> CityWriter<'t> {
             }
         }
         let mut insert_stmt = prepare_sql!(self.tx, &insert.to_string(), "failed to prepare INSERT Zip code SQL")?;
-        execute_sql!(insert_stmt, [], "failed to INSERT Zip codes")
+        execute_sql!(insert_stmt, [], "failed to INSERT Zip codes")?;
+        Ok(())
     }
 }
 

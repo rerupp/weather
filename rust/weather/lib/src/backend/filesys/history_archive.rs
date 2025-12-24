@@ -16,8 +16,8 @@ use crate::{
 use toolslib::{fmt::commafy, stopwatch::StopWatch};
 
 mod archive_file;
-pub use archive_file::ArchiveMetadata;
-use archive_file::{ArchiveContent, ArchiveData, ArchiveFile};
+use archive_file::ArchiveFile;
+pub(in crate::backend) use archive_file::{ArchiveContent, ArchiveData, ArchiveMetadata};
 use chrono::NaiveDate;
 
 pub struct HistoryArchive {
@@ -33,10 +33,8 @@ impl HistoryArchive {
     /// * `archive_file` is an existing location archive file.
     ///
     pub fn open(alias: &str, archive_file: WeatherFile) -> crate::Result<Self> {
-        let stopwatch = StopWatch::start_new();
-        let self_ = Self { archive: ArchiveFile::open(alias, archive_file)? };
-        log::trace!("'{}' open: {}us", alias, commafy(stopwatch.elapsed().as_micros()));
-        Ok(self_)
+        crate::log_elapsed_time!(trace, format!("HistoryArchive({alias}) open"));
+        Ok(Self { archive: ArchiveFile::open(alias, archive_file)? })
     }
 
     /// Creates an instance of the history archive creating the underlying
@@ -48,10 +46,24 @@ impl HistoryArchive {
     /// * `archive_file` is the weather history archive file.
     ///
     pub fn create(alias: &str, archive_file: WeatherFile) -> crate::Result<Self> {
-        let stopwatch = StopWatch::start_new();
-        let self_ = Self { archive: ArchiveFile::create(alias, archive_file)? };
-        log::trace!("'{}' create: {}us", alias, commafy(stopwatch.elapsed().as_micros()));
-        Ok(self_)
+        crate::log_elapsed_time!(trace, format!("HistoryArchive({alias}) create"));
+        Ok(Self { archive: ArchiveFile::create(alias, archive_file)? })
+    }
+
+    /// Creates an iterator that returns all weather history from an archive.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` is the locations unique identifier.
+    /// * `archive_file` is an existing location archive file.
+    ///
+    pub fn metadata_and_history_iter(
+        alias: &str,
+        archive_file: WeatherFile,
+    ) -> crate::Result<impl Iterator<Item = (ArchiveMetadata, History)>> {
+        let history_archive = HistoryArchive::open(alias, archive_file)?;
+        let iterator = history_archive.archive.content_iter()?;
+        Ok(HistoryIterator { inner_iterator: iterator })
     }
 
     /// Used by the [Backend] to get a summary of the history information for a location.
@@ -112,7 +124,7 @@ impl HistoryArchive {
     ///
     /// * `histories` provides the location weather history that will be added to the archive.
     ///
-    pub fn append(&self, histories: &Vec<History>) -> crate::Result<Vec<NaiveDate>> {
+    pub fn append(&self, histories: &Vec<History>) -> crate::Result<Vec<ArchiveMetadata>> {
         let stopwatch = StopWatch::start_new();
         // find histories dates that already exist
         let append_dates = histories.iter().map(|history| history.date.clone()).collect::<Vec<_>>();
@@ -165,31 +177,37 @@ impl HistoryArchive {
         let append_dates = updates.iter().map(|file_data| file_data.date.clone()).collect::<Vec<_>>();
         self.archive.add_data(updates)?;
         log::trace!("'{}' append: {}", &self.archive.lid, commafy(stopwatch));
-        
-        // append dates is sorted because the updates were sorted by date
-        Ok(append_dates)
+
+        // let existing_dates = self.archive.metadata_by_date(append_dates, true)?.map(|md| md.date).collect::<Vec<_>>();
+        let appends_metadata = self.archive.metadata_by_date(append_dates, true)?.collect::<Vec<_>>();
+        Ok(appends_metadata)
     }
 
-    /// Used by the database to get metadata associated with a collection of history dates.
+    /// Used by the filesys::admin module to get all the metadata for a history archive.
+    pub fn metadata(&self) -> crate::Result<impl Iterator<Item = ArchiveMetadata>> {
+        self.archive.metadata_iter(None)
+    }
+
+    /// Copy of the archive contents into the destination archive.
     ///
     /// # Arguments
     ///
-    /// * `dates` identifies the requested history metadata .
+    /// * `destination` is the archive contents will be copied into.
     ///
-    pub fn metadata_by_dates(&self, dates: Vec<NaiveDate>) -> crate::Result<impl Iterator<Item = ArchiveMetadata>> {
-        self.archive.metadata_by_date(dates, true)
+    pub fn copy(&self, destination: &HistoryArchive) -> crate::Result<()> {
+        self.archive.copy_filter(&destination.archive, None)
     }
 
-    /// Used by the database to get the entire archive content.
+    /// Check if the archive does not contain any files.
     ///
-    pub fn metadata_and_history(&self) -> crate::Result<impl Iterator<Item = (ArchiveMetadata, History)>> {
-        let iterator = self.archive.content_iter()?;
-        Ok(HistoryIterator { inner_iterator: iterator })
+    pub fn is_empty(&self) -> bool {
+        self.archive.is_empty()
     }
 
-    // Used by the filesys::admin module to get all the metadata for a history archive.
-    pub fn metadata(&self) -> crate::Result<impl Iterator<Item = ArchiveMetadata>> {
-        self.archive.metadata_iter(None)
+    /// Get the count of history files in the archive.
+    ///
+    pub fn history_count(&self) -> usize {
+        self.archive.history_count()
     }
 }
 
@@ -260,10 +278,10 @@ mod tests {
         let test_dates = DateRange::new(get_date(2025, 5, 15), get_date(2025, 5, 19));
         let history_data: Vec<History> =
             test_dates.iter().map(|date| History { alias: alias.to_string(), date, ..Default::default() }).collect();
-        let added_dates = testcase.append(&history_data).unwrap();
-        assert_eq!(added_dates.len(), 5);
-        for date in added_dates {
-            assert!(test_dates.contains(&date))
+        let appends_metadata = testcase.append(&history_data).unwrap();
+        assert_eq!(appends_metadata.len(), 5);
+        for metadata in appends_metadata {
+            assert!(test_dates.contains(&metadata.date));
         }
 
         // spot check the archive

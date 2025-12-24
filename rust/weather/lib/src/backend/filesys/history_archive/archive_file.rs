@@ -151,7 +151,62 @@ impl ArchiveFile {
     /// * `data` contains the archive file contents.
     ///
     pub fn add_data(&self, data: Vec<ArchiveData>) -> crate::Result<()> {
+        crate::log_elapsed_time!("ArchiveFile::add_data():");
         ArchiveWriter::new(&self.lid, &self.file).add_data(data)
+    }
+
+    pub fn copy_filter(&self, destination: &ArchiveFile, date_filter: Option<Vec<NaiveDate>>) -> crate::Result<()> {
+        macro_rules! err {
+            ($($arg:tt)*) => {
+                Err(crate::Error::from(format!("ArchiveFile({}).copy_filter({}): {}", self.lid, destination.lid, format!($($arg)*))))
+            };
+        }
+        let mut reader = archive::reader(&self.file)?;
+        let mut filenames = reader.file_names().map(|n| n.to_string()).collect::<Vec<_>>();
+        filenames.sort_unstable();
+        let mut writer = archive::writer(&destination.file)?;
+        for source_filename in &filenames {
+            match reader.by_name(source_filename) {
+                Err(error) => err!("error getting history file {source_filename}: {error}")?,
+                Ok(zip_file) => {
+                    let date = archive::filename_to_date(source_filename)?;
+                    if let Some(date_filter) = &date_filter {
+                        if !date_filter.contains(&date) {
+                            continue;
+                        }
+                    }
+                    let destination_filename = archive::date_to_filename(&destination.lid, &date);
+                    if let Err(error) = writer.raw_copy_file_rename(zip_file, &destination_filename) {
+                        err!("error copying archive file {destination_filename}: {error}")?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check to see if the archive does not contain any files.
+    ///
+    pub fn is_empty(&self) -> bool {
+        match archive::reader(&self.file) {
+            Ok(reader) => reader.is_empty(),
+            Err(error) => {
+                log::error!("ArchiveFile({}): {}", self.lid, error);
+                false
+            }
+        }
+    }
+
+    /// Get the archive file count.
+    ///
+    pub fn history_count(&self) -> usize {
+        match archive::reader(&self.file) {
+            Ok(reader) => reader.len(),
+            Err(error) => {
+                log::error!("ArchiveFile({}): {}", self.lid, error);
+                0
+            }
+        }
     }
 
     /// Get the size of the file.
@@ -249,18 +304,34 @@ mod archive {
     use chrono::NaiveDate;
     use std::fs::File;
     use std::io::BufReader;
-    use zip::ZipArchive;
+    use zip::{ZipArchive, ZipWriter};
 
-    /// Creates the ZipArchive that will read data out of the archive file.
+    /// Creates the [ZipArchive] that will read data out of the archive file.
     ///
     /// # Arguments
     ///
-    /// * `file` is the weather history file the ZipArchive will usee.
+    /// * `archive` is the weather history file the [ZipArchive] reads.
     ///
-    pub fn open(file: &WeatherFile) -> crate::Result<ZipArchive<BufReader<File>>> {
-        match ZipArchive::new(BufReader::new(file.reader()?)) {
+    pub fn reader(archive: &WeatherFile) -> crate::Result<ZipArchive<BufReader<File>>> {
+        match ZipArchive::new(BufReader::new(archive.reader()?)) {
             Ok(archive) => Ok(archive),
             Err(error) => Err(crate::Error::from(format!("Error opening archive: {:?}", error))),
+        }
+    }
+
+    /// Creates the actual [ZipWriter] that will update the archive.
+    ///
+    /// # Arguments
+    ///
+    /// * `archive` is the weather history file the [ZipWriter] will update.
+    ///
+    pub fn writer(archive: &WeatherFile) -> crate::Result<ZipWriter<File>> {
+        match File::options().read(true).write(true).create(true).open(archive.path()) {
+            Ok(file) => match ZipWriter::new_append(file) {
+                Ok(zip_writer) => Ok(zip_writer),
+                Err(zip_error) => Err(crate::Error(format!("failed to open file: {zip_error}"))),
+            },
+            Err(file_error) => Err(crate::Error(format!("failed to create file: {}.", file_error))),
         }
     }
 
@@ -300,5 +371,71 @@ mod archive {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::{testlib, WeatherDir};
+    use std::path::PathBuf;
+
+    macro_rules! date {
+        ($y:expr, $m:expr, $d:expr) => {
+            NaiveDate::from_ymd_opt($y, $m, $d).unwrap()
+        };
+    }
+
+    #[test]
+    fn copy_filter() {
+        // use the database test resources
+        let fixture = testlib::TestFixture::create();
+        fixture.copy_resources(&testlib::test_resources().join("db"));
+        let weather_dir = WeatherDir::new(PathBuf::from(&fixture)).unwrap();
+
+        // make sure the copy without filter is working
+        let source = ArchiveFile::open("north", weather_dir.archive("north")).unwrap();
+        let copy = ArchiveFile::create("copy", weather_dir.archive("copy")).unwrap();
+        source.copy_filter(&copy, None).unwrap();
+        let source_dates = source.history_dates(None, true).unwrap();
+        let copy_dates = copy.history_dates(None, true).unwrap();
+        for (lhs, rhs) in source_dates.iter().zip(copy_dates.iter()) {
+            assert_eq!(lhs, rhs);
+        }
+
+        let filtered = ArchiveFile::create("filtered", weather_dir.archive("filtered")).unwrap();
+        let mut date_filter = DateRange::new(date!(2015, 4, 1), date!(2015, 4, 14)).iter().collect::<Vec<_>>();
+        DateRange::new(date!(2016, 10, 10), date!(2016, 10, 17)).iter().for_each(|date| date_filter.push(date));
+        DateRange::new(date!(2017, 7, 14), date!(2017, 7, 20)).iter().for_each(|date| date_filter.push(date));
+        source.copy_filter(&filtered, Some(date_filter.clone())).unwrap();
+        let filtered_dates = filtered.history_dates(None, true).unwrap();
+        for (lhs, rhs) in date_filter.iter().zip(filtered_dates.iter()) {
+            assert_eq!(lhs, rhs);
+        }
+    }
+
+    // #[test]
+    #[allow(unused)]
+    fn db_test_archives() {
+        let weather_dir = WeatherDir::try_from("temp").unwrap();
+
+        // north and between share the same date ranges
+        let mut date_filter = DateRange::new(date!(2015, 4, 1), date!(2015, 4, 14)).iter().collect::<Vec<_>>();
+        DateRange::new(date!(2016, 10, 10), date!(2016, 10, 17)).iter().for_each(|date| date_filter.push(date));
+        DateRange::new(date!(2017, 7, 14), date!(2017, 7, 20)).iter().for_each(|date| date_filter.push(date));
+        let tigard = ArchiveFile::open("tigard", weather_dir.archive("tigard")).unwrap();
+        let north = ArchiveFile::create("north", weather_dir.archive("north")).unwrap();
+        tigard.copy_filter(&north, Some(date_filter.clone())).unwrap();
+        let carson_city_nv = ArchiveFile::open("carson_city_nv", weather_dir.archive("carson_city_nv")).unwrap();
+        let between = ArchiveFile::create("between", weather_dir.archive("between")).unwrap();
+        carson_city_nv.copy_filter(&between, Some(date_filter)).unwrap();
+
+        // of course south has to be different
+        let mut date_filter = DateRange::new(date!(2015, 4, 1), date!(2015, 4, 14)).iter().collect::<Vec<_>>();
+        DateRange::new(date!(2016, 10, 10), date!(2016, 10, 17)).iter().for_each(|date| date_filter.push(date));
+        DateRange::new(date!(2018, 1, 1), date!(2018, 1, 7)).iter().for_each(|date| date_filter.push(date));
+        let foothills = ArchiveFile::open("foothills", weather_dir.archive("foothills")).unwrap();
+        let south = ArchiveFile::create("south", weather_dir.archive("south")).unwrap();
+        foothills.copy_filter(&south, Some(date_filter)).unwrap();
     }
 }

@@ -8,7 +8,7 @@ use ratatui::{
 };
 use std::{ops::ControlFlow, rc::Rc};
 use termui_lib::prelude::*;
-use weather_lib::{location_filters, prelude::WeatherData};
+use weather_lib::prelude::WeatherData;
 
 /// The main tab window showing a summary of the locations history data.
 ///
@@ -60,7 +60,7 @@ impl DialogWindow for SummaryWindow {
     ///
     fn refresh(&mut self) -> Result<(), String> {
         self.report.take();
-        match self.weather_data.get_history_summary(location_filters!()) {
+        match self.weather_data.get_history_summary(None) {
             Ok(history_summaries) => {
                 let report = reports::text::Report::default().generate(history_summaries);
                 self.report.replace(ReportView::new(report, None).with_show_selected(true));

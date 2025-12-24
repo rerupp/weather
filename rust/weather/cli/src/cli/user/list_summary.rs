@@ -27,7 +27,7 @@ pub const COMMAND_NAME: &'static str = "ls";
 ///
 pub fn command() -> Command {
     Command::new(COMMAND_NAME)
-        .about("List a summary of weather data available by location.")
+        .about("List a summary of weather history by location.")
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
         .args(LocationFilterArgs::get())

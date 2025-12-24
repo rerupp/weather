@@ -4,9 +4,8 @@ mod locations_file;
 mod validate;
 
 use crate::{
-    backend::filesys::{HistoryArchive, WeatherDir},
-    entities::{Location, LocationFilters},
-    location_filters,
+    backend::filesys::{history_archive::HistoryArchive, WeatherDir},
+    entities::{Location, LocationFilter},
 };
 use locations_file::{LocationDocument, LocationsFile};
 
@@ -33,6 +32,16 @@ pub struct Locations<'w> {
     weather_dir: &'w WeatherDir,
 }
 impl<'w> Locations<'w> {
+    /// The admin module uses this to test if the locations file exists or not.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the parent directory of the locations file.
+    ///
+    pub fn exists(weather_dir: &WeatherDir) -> bool {
+        LocationsFile::exists(weather_dir)
+    }
+
     /// Opens an existing locations file or create a new one if it does not exist.
     ///
     /// # Arguments
@@ -47,21 +56,15 @@ impl<'w> Locations<'w> {
         Ok(Self { file, weather_dir })
     }
 
-    /// Get all locations.
-    ///
-    pub fn get(&self) -> crate::Result<impl Iterator<Item = Location>> {
-        let document_iterator = Box::new(self.file.load()?.into_iter());
-        Ok(LocationsIterator::new(document_iterator, location_filters![]))
-    }
-
-    /// Get locations based on a collection of selection filters.
+    /// Get locations optionally selecting specific ones.
     ///
     /// # Arguments
     ///
     /// * `filters` are used select locations.
     ///
-    pub fn find(&self, filters: LocationFilters) -> crate::Result<impl Iterator<Item = Location>> {
+    pub fn get(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<impl Iterator<Item = Location>> {
         let document_iterator = Box::new(self.file.load()?.into_iter());
+        let filters = filters.unwrap_or_else(|| vec![]);
         Ok(LocationsIterator::new(document_iterator, filters))
     }
 
@@ -76,8 +79,6 @@ impl<'w> Locations<'w> {
         location.city = validate::city(&location.city)?;
         location.state_id = validate::city(&location.state_id)?;
         location.state = validate::city(&location.state)?;
-        // todo: this can go away once not persisting
-        location.name = validate::name(&location.name)?;
         location.alias = validate::alias(&location.alias)?;
         location.latitude = validate::latitude(&location.latitude)?;
         location.longitude = validate::longitude(&location.longitude)?;
@@ -87,17 +88,99 @@ impl<'w> Locations<'w> {
         let mut location_documents: Vec<LocationDocument> = self.file.load()?.collect();
         let found_alias = location_documents.iter().find(|location_document| location_document.alias == location.alias);
         if let Some(location_document) = found_alias {
-            err!("{} already uses the '{}' alias name", location_document.name, location_document.alias)?;
+            err!("{} ({}) already uses the alias name", location_document.name, location_document.alias)?;
+        }
+
+        // make sure the history archive does not exist before saving the location
+        let archive_file = self.weather_dir.archive(&location.alias);
+        if archive_file.exists() {
+            err!("The history archive for {} ({}) already exists.", location.name, location.alias)?;
         }
 
         // make sure the documents are in location name order before saving
         location_documents.push(LocationDocument::from(&location));
-        // todo: change to city and state?
         location_documents.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
         self.file.save(location_documents)?;
-        let archive = self.weather_dir.archive(&location.alias);
-        HistoryArchive::create(&location.alias, archive)?;
+
+        // create the archive
+        HistoryArchive::create(&location.alias, archive_file)?;
         Ok(location)
+    }
+
+    /// Update a locations properties.
+    ///
+    /// # Arguments
+    ///
+    /// * `location` identifies the location and contains the new properties.
+    ///
+    ///
+    pub fn update(&self, mut location: Location) -> crate::Result<Option<Location>> {
+        // JIC verify the alias
+        location.alias = validate::alias(&location.alias)?;
+        // get the locations document
+        let mut location_documents= self.file.load()?.collect::<Vec<_>>();
+        let index = match location_documents.iter().position(|l| l.alias == location.alias) {
+            Some(index) => index,
+            None => {
+                err!("Did not find '{}' in the locations document.", location.alias)?
+            }
+        };
+        let location_document = location_documents.get_mut(index).unwrap();
+
+        // even though it should come in okay, validate JIC
+        let mut changed = false;
+        macro_rules! update_if_changed {
+            ($attr: ident) => {
+                if !location.$attr.is_empty() {
+                    location.$attr = validate::$attr(&location.$attr)?;
+                    if location_document.$attr != location.$attr {
+                        location_document.$attr = location.$attr.to_string();
+                        changed = true;
+                    }
+                }
+            };
+        }
+        update_if_changed!(city);
+        update_if_changed!(state_id);
+        update_if_changed!(state);
+        update_if_changed!(latitude);
+        update_if_changed!(longitude);
+        update_if_changed!(tz);
+
+        match changed {
+            false => {
+                log::debug!("{} did not have any changes.", location_document.get_name());
+                Ok(None)
+            }
+            true => {
+                // make sure the location has the correct name
+                location.name = location_document.get_name();
+                self.file.save(location_documents)?;
+                Ok(Some(location))
+            }
+        }
+    }
+    pub fn delete(&self, alias: &str) -> crate::Result<bool> {
+        // get the location collection
+        let mut original = self.file.load()?.collect::<Vec<_>>();
+
+        // remove the location that matches the alias name
+        let mut update = original.extract_if(.., |l| l.alias != alias).collect::<Vec<_>>();
+        if original.len() == update.len() {
+            log::warn!("The location '{alias}' was not found and could not be deleted.");
+            return Ok(false);
+        }
+
+        // persist the location collection
+        update.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+        self.file.save(update)?;
+
+        // try to remove the archive
+        if let Err(error) = self.weather_dir.archive(alias).remove() {
+            // don't fail at this point until you can transact the locations update
+            log::error!("Locations failed to delete the '{alias}' archive: {error}");
+        }
+        Ok(true)
     }
 }
 
@@ -107,9 +190,8 @@ impl<'w> Locations<'w> {
 struct LocationsIterator {
     /// The iterator that walks the location documents.
     documents: Box<dyn Iterator<Item = LocationDocument>>,
-
     /// The document filter.
-    filters: LocationFilters,
+    filters: Vec<LocationFilter>,
 }
 impl LocationsIterator {
     /// Creates a new instance of the location iterator.
@@ -117,9 +199,9 @@ impl LocationsIterator {
     /// # Arguments
     ///
     /// * `documents` is the source document location iterator.
-    /// * `filters` optionally select which locations will be returned..
+    /// * `filters` optionally select which locations will be returned.
     ///
-    fn new(documents: Box<dyn Iterator<Item = LocationDocument>>, mut filters: LocationFilters) -> Self {
+    fn new(documents: Box<dyn Iterator<Item = LocationDocument>>, mut filters: Vec<LocationFilter>) -> Self {
         // force all the filter pattern to be lowercase
         for filter in filters.iter_mut() {
             if let Some(city) = filter.city.take() {
@@ -280,7 +362,7 @@ impl Iterator for LocationsIterator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{backend::testlib, location_filter};
+    use crate::backend::testlib;
 
     #[test]
     fn locations() {
@@ -289,20 +371,20 @@ mod tests {
         let weather_dir = WeatherDir::try_from(fixture.to_string()).unwrap();
         let locations = Locations::open(&weather_dir).unwrap();
 
-        let testcase: Vec<Location> = locations.get().unwrap().collect();
+        let testcase: Vec<Location> = locations.get(None).unwrap().collect();
         assert_eq!(testcase.len(), 3);
         assert_eq!(testcase[0].alias, "between");
         assert_eq!(testcase[1].alias, "north");
         assert_eq!(testcase[2].alias, "south");
 
         let testcase =
-            locations.find(location_filters![location_filter!(name = "*tH")]).unwrap().collect::<Vec<Location>>();
+            locations.get(Some(vec![LocationFilter::name("*tH")])).unwrap().collect::<Vec<Location>>();
         assert_eq!(testcase.len(), 2);
         assert_eq!(testcase[0].alias, "north");
         assert_eq!(testcase[1].alias, "south");
 
         let testcase = locations
-            .find(location_filters![location_filter!(name = "north"), location_filter!(name = "south"),])
+            .get(Some(vec![LocationFilter::name("north"), LocationFilter::name("south")]))
             .unwrap()
             .collect::<Vec<Location>>();
         assert_eq!(testcase.len(), 2);
@@ -310,29 +392,77 @@ mod tests {
         assert_eq!(testcase[1].alias, "south");
 
         let location = Location {
-            city: "New City".to_string(),
-            state_id: "abrev_state".to_string(),
-            state: "state".to_string(),
-            name: " New City".to_string(),
-            alias: "nEw".to_string(),
+            city: "  New City".to_string(),
+            state_id: "abrev_state ".to_string(),
+            state: " state".to_string(),
+            name: Default::default(),
+            alias: " nEw ".to_string(),
             latitude: "1 ".to_string(),
             longitude: " 0 ".to_string(),
             tz: "utc".to_string(),
         };
         let location = locations.add(location).unwrap();
-        assert_eq!(location.name, "New City");
+        assert_eq!(location.city, "New City");
+        assert_eq!(location.state_id, "abrev_state");
+        assert_eq!(location.state, "state");
         assert_eq!(location.alias, "new");
         assert_eq!(location.latitude, "1");
         assert_eq!(location.longitude, "0");
         assert_eq!(location.tz, "UTC");
-        let testcase: Vec<Location> = locations.get().unwrap().collect();
+        let testcase: Vec<Location> = locations.get(None).unwrap().collect();
         assert_eq!(testcase.len(), 4);
         assert!(testcase.iter().find(|location| &location.alias == "new").is_some());
         assert!(weather_dir.archive(&location.alias).exists());
 
-        let testcase: Vec<Location> =
-            locations.find(location_filters![location_filter!(name = "new")]).unwrap().collect();
-        assert_eq!(testcase.len(), 1);
+        // update the new location
+        let update = Location {
+            city: "Updated City ".to_string(),
+            state_id: "updated state_id".to_string(),
+            state: " updated state".to_string(),
+            name: Default::default(),
+            alias: "new".to_string(),
+            latitude: " -1".to_string(),
+            longitude: "1 ".to_string(),
+            tz: "america/phoenix".to_string(),
+        };
+        // unwrap the result and get the option value
+        let updated_location = locations.update(update).unwrap().unwrap();
+        assert_eq!(updated_location.city, "Updated City");
+        assert_eq!(updated_location.state_id, "updated state_id");
+        assert_eq!(updated_location.state, "updated state");
+        assert_eq!(updated_location.alias, "new");
+        assert_eq!(updated_location.latitude, "-1");
+        assert_eq!(updated_location.longitude, "1");
+        assert_eq!(updated_location.tz, "America/Phoenix");
+
+        // check partial update
+        let partial_update = Location {
+            city: "Partial Update City".to_string(),
+            state_id: "id".to_string(),
+            state: "State".to_string(),
+            name: "".to_string(),
+            alias: "new".to_string(),
+            latitude: "".to_string(),
+            longitude: "".to_string(),
+            tz: "".to_string(),
+        };
+        assert!(locations.update(partial_update).unwrap().is_some());
+
+        // verify the document contents
+        let testcase = locations.get(Some(vec![LocationFilter::name("new")])).unwrap()
+            .find(|location| &location.alias == "new")
+            .unwrap();
+        assert_eq!(testcase.city, "Partial Update City");
+        assert_eq!(testcase.state_id, "id");
+        assert_eq!(testcase.state, "State");
+        assert_eq!(testcase.alias, updated_location.alias);
+        assert_eq!(testcase.latitude, updated_location.latitude);
+        assert_eq!(testcase.longitude, updated_location.longitude);
+        assert_eq!(testcase.tz, updated_location.tz);
+
+        // delete the new location
+        locations.delete("new").unwrap();
+        assert!(locations.get(None).unwrap().find(|l| l.alias == "new").is_none());
     }
 
     #[test]
@@ -378,22 +508,21 @@ mod tests {
                 LocationsIterator::new(Box::new(locations_file.load().unwrap()), $filters).collect::<Vec<_>>()
             };
         }
-        assert_eq!(testcase!(location_filters!()).len(), 3);
-        assert_eq!(testcase!(location_filters![location_filter!(city = "South*")]).len(), 1);
-        assert_eq!(testcase!(location_filters![location_filter!(state = "KS")]).len(), 1);
-        assert_eq!(testcase!(location_filters![location_filter!(name = "north*")]).len(), 1);
-        assert_eq!(testcase!(location_filters![location_filter!(city = "South*", state = "GA")]).len(), 1);
-        assert_eq!(testcase!(location_filters![location_filter!(city = "South*").with_name("south")]).len(), 1);
-        assert_eq!(testcase!(location_filters![location_filter!(state = "GA").with_name("south")]).len(), 1);
+        assert_eq!(testcase!(vec![]).len(), 3);
+        assert_eq!(testcase!(vec![LocationFilter::city("South*")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::state("KS")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::name("north*")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_state("GA")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_name("south")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::state("GA").with_name("south")]).len(), 1);
 
-        let locations =
-            testcase!(location_filters![location_filter!(city = "Southern City", state = "GA").with_name("south")]);
+        let locations = testcase!(vec![LocationFilter::city("Southern City").with_state("GA").with_name("south")]);
         assert_eq!(locations.len(), 1);
 
-        let locations = testcase!(location_filters![
-            location_filter!(city = "Southern City"),
-            location_filter!(state = "KS"),
-            location_filter!(name = "north"),
+        let locations = testcase!(vec![
+            LocationFilter::city("Southern City"),
+            LocationFilter::state("KS"),
+            LocationFilter::name("north"),
         ]);
         assert_eq!(locations.len(), 3);
     }

@@ -1,21 +1,27 @@
 {
   "locations": [
     {
-      "name": "Southern City",
+      "city": "Southern City",
+      "state": "Arizona",
+      "state_id": "AZ",
       "alias": "south",
       "longitude": "-110.9748477",
       "latitude": "32.2228765",
       "tz": "America/Phoenix"
     },
     {
-      "name": "Between City",
+      "city": "Between City",
+      "state": "Nevada",
+      "state_id": "NV",
       "alias": "between",
       "longitude": "-119.7474",
       "latitude": "39.1511",
       "tz": "America/Los_Angeles"
     },
     {
-      "name": "Northern City",
+      "city": "Northern City",
+      "state": "Oregon",
+      "state_id": "OR",
       "alias": "north",
       "longitude": "-122.7845",
       "latitude": "45.4237",
