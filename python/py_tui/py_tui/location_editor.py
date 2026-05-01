@@ -158,7 +158,7 @@ class LocationProperties(VerticalGroup):
                 height: 1;
             }
             Right {
-                width: 10;
+                width: 15;
                 height: auto;
             }
             Input {
@@ -170,9 +170,11 @@ class LocationProperties(VerticalGroup):
     }
     """
 
-    CITY_ID = "#location-properties-city"
-    STATE_ID = "#location-properties-state"
-    SHORT_STATE_ID = "#location-properties-short-state"
+    COUNTRY_NAME_ID = "#location-properties-country-name"
+    COUNTRY_CODE_ID = "#location-properties-country-code"
+    REGION_NAME_ID = "#location-properties-region-name"
+    REGION_CODE_ID = "#location-properties-region-code"
+    CITY_NAME_ID = "#location-properties-city-name"
     ALIAS_ID = "#location-properties-alias"
     LATITUDE_ID = "#location-properties-latitude"
     LONGITUDE_ID = "#location-properties-longitude"
@@ -191,18 +193,25 @@ class LocationProperties(VerticalGroup):
         changeable = self._changeable
         with CenterMiddle():
             location = self._location
-            yield LocationProperty(id=self.CITY_ID[1:], label="City:", value=location.city if location else None,
-                                   placeholder="the city name", can_focus=changeable, required=changeable)
-            yield LocationProperty(id=self.STATE_ID[1:], label="State:", value=location.state if location else None,
-                                   placeholder="state name", can_focus=changeable, required=changeable)
-            # todo: upper case only?
-            yield LocationProperty(id=self.SHORT_STATE_ID[1:], label="State ID:",
-                                   value=location.state_id if location else None, placeholder="ID",
-                                   can_focus=changeable, required=changeable)
             alias_changeable = changeable and self._alias_changeable
             yield LocationProperty(id=self.ALIAS_ID[1:], label="Alias:", value=location.alias if location else None,
                                    placeholder="alias name", can_focus=alias_changeable,
                                    read_only=not self._alias_changeable, required=alias_changeable)
+            yield LocationProperty(id=self.CITY_NAME_ID[1:], label="City Name:",
+                                   value=location.city_name if location else None,
+                                   placeholder="the city name", can_focus=changeable, required=changeable)
+            yield LocationProperty(id=self.REGION_NAME_ID[1:], label="Region Name:",
+                                   value=location.region_name if location else None,
+                                   placeholder="the region name", can_focus=changeable, required=changeable)
+            yield LocationProperty(id=self.REGION_CODE_ID[1:], label="Region Code:",
+                                   value=location.region_code if location else None,
+                                   placeholder="the region code", can_focus=changeable, required=changeable)
+            yield LocationProperty(id=self.COUNTRY_NAME_ID[1:], label="Country Name:",
+                                   value=location.country_name if location else None,
+                                   placeholder="the country name", can_focus=changeable, required=changeable)
+            yield LocationProperty(id=self.COUNTRY_CODE_ID[1:], label="Country Code:",
+                                   value=location.country_code if location else None,
+                                   placeholder="the country code", can_focus=changeable, required=changeable)
             yield LocationProperty(id=self.LATITUDE_ID[1:], label="Latitude:",
                                    value=location.latitude if location else None,
                                    placeholder="latitude", can_focus=changeable, required=changeable,
@@ -218,9 +227,11 @@ class LocationProperties(VerticalGroup):
     @property
     def location(self) -> PyLocation:
         return PyLocation(
-            city=self.query_one(self.CITY_ID, LocationProperty).value,
-            state=self.query_one(self.STATE_ID, LocationProperty).value,
-            state_id=self.query_one(self.SHORT_STATE_ID, LocationProperty).value,
+            country_name=self.query_one(self.COUNTRY_NAME_ID, LocationProperty).value,
+            country_code=self.query_one(self.COUNTRY_CODE_ID, LocationProperty).value,
+            region_name=self.query_one(self.REGION_NAME_ID, LocationProperty).value,
+            region_code=self.query_one(self.REGION_CODE_ID, LocationProperty).value,
+            city_name=self.query_one(self.CITY_NAME_ID, LocationProperty).value,
             alias=self.query_one(self.ALIAS_ID, LocationProperty).value,
             latitude=self.query_one(self.LATITUDE_ID, LocationProperty).value,
             longitude=self.query_one(self.LONGITUDE_ID, LocationProperty).value,

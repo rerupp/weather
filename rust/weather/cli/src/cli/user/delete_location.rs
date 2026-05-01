@@ -1,6 +1,5 @@
 //! The delete location command.
 //!
-use super::get_location;
 use crate::cli;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use weather_lib::prelude::{LocationFilter, WeatherData};
@@ -29,11 +28,10 @@ pub fn command() -> Command {
 ///
 pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
     let alias = args.get_one::<String>(ALIAS).unwrap();
-    let on_multiple = || cli::err!("Multiple locations found using '{alias}' as an alias.");
-    match get_location(weather_data, alias, on_multiple)? {
+    match weather_data.get_location(LocationFilter::alias(alias))? {
         None => cli::err!("A location was not found using '{alias}' as the alias."),
         Some(location) => {
-            weather_data.delete_location(LocationFilter::name(&location.alias))?;
+            weather_data.delete_location(LocationFilter::alias(&location.alias))?;
             Ok(())
         }
     }

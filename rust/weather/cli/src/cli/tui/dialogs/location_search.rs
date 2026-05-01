@@ -13,7 +13,7 @@ use termui_lib::prelude::{
     Control, ControlGroup, ControlResult, ControlState, DialogResult, DialogWindow, EditControl, EditField,
     EditFieldGroup, Label, MessageStyle, ReportView, TextEditor,
 };
-use weather_lib::prelude::{Location, CityFilter, WeatherData};
+use weather_lib::prelude::{Location, WeatherData};
 
 /// The add location identifier.
 ///
@@ -80,11 +80,14 @@ impl LocationSearch {
         match self.criteria.key_pressed(key_event) {
             ControlFlow::Break(DialogResult::Exit) => {
                 self.criteria.set_active(false);
-                let filter = self.criteria.as_filter();
-                match self.weather_data.search_locations(filter) {
-                    Ok(locations) => self.dialog.win_mut().initialize(locations),
+                let (filters, limit) = self.criteria.as_filter();
+                match self.weather_data.get_cities(filters, limit) {
                     Err(err) => {
                         self.dialog.set_message(MessageStyle::Error, format!("City search failed ({}).", err));
+                    }
+                    Ok(cities) => {
+                        let locations = cities.into_iter().map(Into::into).collect();
+                        self.dialog.win_mut().initialize(locations)
                     }
                 }
                 break_event!(DialogResult::Continue)
@@ -279,6 +282,7 @@ impl DialogWindow for SearchWindow {
 mod criteria {
     //! The search criteria dialog
     use super::*;
+    use weather_lib::prelude::LocationFilter;
 
     /// The full state edit field identifier.
     ///
@@ -332,7 +336,7 @@ mod criteria {
         }
         /// Get the search criteria from the window.
         ///
-        pub fn as_filter(&self) -> CityFilter {
+        pub fn as_filter(&self) -> (Option<Vec<LocationFilter>>, usize) {
             self.dialog.win().as_filter_and_limit()
         }
         /// Dispatch a key pressed event to the dialog. [ControlFlow::Continue] will be returned if the
@@ -402,26 +406,29 @@ mod criteria {
             }
         }
         /// Transform the edit fields into the filter criteria used by a location search.
-        fn as_filter_and_limit(&self) -> CityFilter {
-            let mut filter = CityFilter::default();
+        fn as_filter_and_limit(&self) -> (Option<Vec<LocationFilter>>, usize) {
+            let limit = self.fields.get(LIMIT_ID).unwrap().text().parse::<usize>().unwrap_or(25);
 
+            // collect up the filters
             let city = self.fields.get(CITY_ID).unwrap().text();
-            if !city.is_empty() {
-                filter.name = Some(city.into());
-            }
-
             let state = self.fields.get(STATE_ID).unwrap().text();
-            if !state.is_empty() {
-                filter.state = Some(state.into());
-            }
-
             let zip_code = self.fields.get(ZIP_CODE_ID).unwrap().text();
-            if !zip_code.is_empty() {
-                filter.zip_code = Some(zip_code.into());
+            match city.is_empty() && state.is_empty() && zip_code.is_empty() {
+                true => (None, limit),
+                false => {
+                    let mut filter = LocationFilter::default();
+                    if !city.is_empty() {
+                        filter.city = Some(city.into());
+                    }
+                    if !state.is_empty() {
+                        filter.region = Some(state.into());
+                    }
+                    if !zip_code.is_empty() {
+                        filter.country = Some(zip_code.into());
+                    }
+                    (Some(vec![filter]), limit)
+                }
             }
-
-            filter.limit = self.fields.get(LIMIT_ID).unwrap().text().parse().unwrap_or(25);
-            filter
         }
     }
     impl DialogWindow for CriteriaWindow {

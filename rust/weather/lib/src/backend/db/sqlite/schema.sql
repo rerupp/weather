@@ -4,10 +4,11 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS locations
 (
     id INTEGER PRIMARY KEY,
-    city TEXT NOT NULL COLLATE NOCASE,
-    state_id TEXT NOT NULL COLLATE NOCASE,
-    state TEXT NOT NULL COLLATE NOCASE,
-    name TEXT GENERATED ALWAYS AS (city || ', ' || state_id),
+    country_name TEXT NOT NULL COLLATE NOCASE,
+    country_code TEXT NOT NULL COLLATE NOCASE,
+    region_name TEXT NOT NULL COLLATE NOCASE,
+    region_code TEXT NOT NULL COLLATE NOCASE,
+    city_name TEXT NOT NULL COLLATE NOCASE,
     alias TEXT NOT NULL COLLATE NOCASE,
     longitude TEXT NOT NULL,
     latitude TEXT NOT NULL,
@@ -15,19 +16,18 @@ CREATE TABLE IF NOT EXISTS locations
 );
 
 -- cover the location city name with an index
-CREATE INDEX IF NOT EXISTS idx_location_city ON locations(city COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_location_city_name ON locations(city_name COLLATE NOCASE);
 
--- cover the location state id with an index
-CREATE INDEX IF NOT EXISTS idx_location_state_id ON locations(state_id COLLATE NOCASE);
+-- cover the location country with an index
+CREATE INDEX IF NOT EXISTS idx_location_country_name ON locations(country_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_location_country_code ON locations(country_code COLLATE NOCASE);
 
--- cover the location state with an index
-CREATE INDEX IF NOT EXISTS idx_location_state ON locations(state COLLATE NOCASE);
+-- cover the location region with an index
+CREATE INDEX IF NOT EXISTS idx_location_region_name ON locations(region_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_location_region_code ON locations(region_code COLLATE NOCASE);
 
 -- cover the location alias with an index
 CREATE UNIQUE INDEX IF NOT EXISTS idx_location_alias ON locations(alias COLLATE NOCASE);
-
--- cover the location name with an index
-CREATE INDEX IF NOT EXISTS idx_location_name ON locations(name COLLATE NOCASE);
 
 -- create the location metadata table
 CREATE TABLE if NOT EXISTS metadata

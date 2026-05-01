@@ -13,7 +13,7 @@
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use std::{io, path::PathBuf};
 use toolslib::logs;
-use weather_lib::prelude::{create_weather_data, Configuration, LocationFilter, WeatherData};
+use weather_lib::prelude::{create_weather_data, Configuration, WeatherData};
 
 mod admin;
 use admin::Admin;
@@ -37,32 +37,32 @@ impl std::fmt::Display for Error {
 }
 impl From<String> for Error {
     fn from(error: String) -> Self {
-        Error(error)
+        Self(error)
     }
 }
 impl From<&str> for Error {
     fn from(error: &str) -> Self {
-        Error(error.to_string())
+        Self(error.to_string())
     }
 }
 impl From<weather_lib::Error> for Error {
     fn from(error: weather_lib::Error) -> Self {
-        Error(error.to_string())
+        Self(error.to_string())
     }
 }
 impl From<toolslib::Error> for Error {
     fn from(error: toolslib::Error) -> Self {
-        Error(error.to_string())
+        Self(error.to_string())
     }
 }
 impl From<toolslib::text::Error> for Error {
     fn from(error: toolslib::text::Error) -> Self {
-        Error(error.to_string())
+        Self(error.to_string())
     }
 }
 impl From<termui_lib::Error> for Error {
     fn from(error: termui_lib::Error) -> Self {
-        Error(error.to_string())
+        Self(error.to_string())
     }
 }
 
@@ -81,7 +81,7 @@ pub fn command() -> Command {
     let binary_name = env!("CARGO_BIN_NAME");
     let version = env!("CARGO_PKG_VERSION");
     Command::new(binary_name)
-        // boiler plate
+        // boilerplate
         .about("The weather data command line.")
         .version(version)
         .subcommand_required(true)
@@ -422,15 +422,15 @@ impl<'a> ReportArgs<'a> {
                 .short('P')
                 .long("pretty")
                 .action(ArgAction::SetTrue)
-                // it seems flags are always present in the parsed arg list and I can't find a way to require it
-                // only when JSON is true.
                 .requires(Self::JSON)
+                .conflicts_with_all([Self::CSV, Self::TEXT])
                 .help("For JSON reports output will be pretty printed."),
             Arg::new(Self::REPORT_FILE)
-                .short('r')
-                .long("report")
+                .short('f')
+                .long("file")
                 .value_name("FILE")
                 .action(ArgAction::Set)
+                .require_equals(true)
                 .value_parser(parse_filename)
                 .help("The report filename (default stdout)."),
             Arg::new(Self::APPEND)
@@ -446,10 +446,6 @@ impl<'a> ReportArgs<'a> {
         ArgGroup::new("REPORT_TYPES").args([Self::TEXT, Self::CSV, Self::JSON]).required(false)
     }
     /// Get the text based report flag.
-    #[allow(unused)]
-    pub fn text(&self) -> bool {
-        self.0.get_flag(ReportArgs::TEXT) || !(self.csv() || self.json())
-    }
     /// Get the `CSV` based report flag.
     pub fn csv(&self) -> bool {
         self.0.get_flag(ReportArgs::CSV)
@@ -470,105 +466,10 @@ impl<'a> ReportArgs<'a> {
     pub fn report_file(&self) -> Option<PathBuf> {
         self.0.get_one::<PathBuf>(ReportArgs::REPORT_FILE).map_or(None, |p| Some(p.clone()))
     }
-}
-
-/// The common command locations_win criteria.
-pub struct LocationFilterArgs<'a>(
-    /// The subcommand command line arguments.
-    &'a ArgMatches,
-);
-impl<'a> LocationFilterArgs<'a> {
-    /// The location city argument.
-    const CITY: &'static str = "LOCATION_FILTER_CITY";
-
-    /// The location state argument.
-    const STATE: &'static str = "LOCATION_FILTER_STATE";
-
-    /// The location name argument.
-    const NAME: &'static str = "LOCATION_FILTER_NAME";
-
-    /// Create a new instance of the filter arguments.
-    ///
-    /// # Arguments
-    ///
-    /// * `args` are the parsed command arguments that will be referenced.
-    ///
-    pub fn new(args: &'a ArgMatches) -> Self {
-        Self(args)
-    }
-
-    /// Get the criteria arguments.
-    pub fn get() -> Vec<Arg> {
-        vec![
-            Arg::new(Self::CITY)
-                .short('c')
-                .long("city")
-                .action(ArgAction::Set)
-                .value_name("CITY")
-                .require_equals(true)
-                .help("The location city name (eg: CITY|*CITY|CITY*|*CITY*)."),
-            Arg::new(Self::STATE)
-                .short('s')
-                .long("state")
-                .action(ArgAction::Set)
-                .value_name("STATE")
-                .require_equals(true)
-                .help("The state name (two-letter or full) (eg: STATE|*STATE|STATE*|*STATE*)."),
-            Arg::new(Self::NAME)
-                .value_name("NAME")
-                .action(ArgAction::Append)
-                .help("The location name (eg: NAME|*NAME|NAME*|*NAME*)."),
-        ]
-    }
-
-    /// Get the collection of location name argument value(s).
-    #[inline]
-    pub fn location_names(&self) -> Option<Vec<String>> {
-        match self.0.get_many::<String>(Self::NAME) {
-            Some(filters) => Some(filters.map(|f| f.clone()).collect()),
-            None => None,
-        }
-    }
-
-    /// Get the city name argument value.
-    #[inline]
-    pub fn city_name(&self) -> Option<String> {
-        self.0.get_one::<String>(Self::CITY).map_or(Default::default(), |p| Some(p.clone()))
-    }
-
-    /// Get the state name argument value.
-    #[inline]
-    pub fn state_name(&self) -> Option<String> {
-        self.0.get_one::<String>(Self::STATE).map_or(None, |p| Some(p.clone()))
-    }
-
-    pub fn as_location_filters(&self) -> Option<Vec<LocationFilter>> {
-        let city = self.city_name();
-        let state = self.state_name();
-        match self.location_names() {
-            Some(names) => {
-                let filters = names
-                    .iter()
-                    .map(|name| {
-                        let mut filter = LocationFilter::name(name);
-                        if let Some(city) = &city {
-                            filter = filter.with_city(city);
-                        }
-                        if let Some(state) = &state {
-                            filter = filter.with_state(state);
-                        }
-                        filter
-                    })
-                    .collect::<Vec<_>>();
-                Some(filters)
-            }
-            None => match (city, state) {
-                (Some(city), Some(state)) => Some(vec![LocationFilter::city(&city).with_state(&state)]),
-                (Some(city), None) => Some(vec![LocationFilter::city(&city)]),
-                (None, Some(state)) => Some(vec![LocationFilter::state(&state)]),
-                _ => None,
-            },
-        }
+    /// Get a collection of the location option identifiers.
+    /// 
+    pub fn arg_ids() -> Vec<&'a str> {
+        vec![Self::TEXT, Self::CSV, Self::JSON, Self::PRETTY, Self::REPORT_FILE, Self::APPEND]
     }
 }
 
@@ -598,32 +499,27 @@ mod tests {
         // let args = testcase(&["testcase"]);
         let cmd_args = testcase(&mut cmd, &["testcase"]);
         let report_args = ReportArgs(&cmd_args);
-        assert!(report_args.text());
         assert!(!report_args.csv());
         assert!(!report_args.json());
         assert!(!report_args.append());
         assert_eq!(report_args.report_file(), None);
-        let cmd_args = testcase(&mut cmd, &["testcase", "--report", "foobar.rpt", "--append"]);
+        let cmd_args = testcase(&mut cmd, &["testcase", "--file=foobar.rpt", "--append"]);
         let report_args = ReportArgs(&cmd_args);
-        assert!(report_args.text());
         assert!(!report_args.csv());
         assert!(!report_args.json());
         assert!(report_args.append());
         assert_eq!(report_args.report_file().unwrap(), PathBuf::from("foobar.rpt"));
         let args = testcase(&mut cmd, &["testcase", "--csv"]);
         let report_args = ReportArgs(&args);
-        assert!(!report_args.text());
         assert!(report_args.csv());
         assert!(!report_args.json());
         let args = testcase(&mut cmd, &["testcase", "--json"]);
         let report_args = ReportArgs(&args);
-        assert!(!report_args.text());
         assert!(!report_args.csv());
         assert!(report_args.json());
         assert!(!report_args.pretty());
         let args = testcase(&mut cmd, &["testcase", "--json", "--pretty"]);
         let report_args = ReportArgs(&args);
-        assert!(!report_args.text());
         assert!(!report_args.csv());
         assert!(report_args.json());
         assert!(report_args.pretty());
@@ -638,12 +534,6 @@ mod tests {
             let (_, args) = raw_args.remove_subcommand().unwrap();
             args
         }};
-    }
-
-    macro_rules! command {
-        ($sub_command:expr) => {
-            Command::new("test").no_binary_name(true).subcommand($sub_command)
-        };
     }
 
     #[test]
@@ -666,44 +556,5 @@ mod tests {
         assert!(command_args.append());
         assert!(command_args.fs_only());
         assert_eq!(command_args.verbosity(), 3)
-    }
-
-    #[test]
-    fn location_filter_args() {
-        let mut cmd = command!(Command::new("testcase").args(LocationFilterArgs::get()));
-
-        let matches = arg_matches!(cmd, &["testcase"]);
-        assert!(LocationFilterArgs::new(&matches).as_location_filters().is_none());
-
-        let matches = arg_matches!(cmd, &["testcase", "-c=city"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
-        assert_eq!(testcase.len(), 1);
-        assert_eq!(testcase[0].city, Some("city".into()));
-        assert!(testcase[0].state.is_none());
-        assert!(testcase[0].name.is_none());
-
-        let matches = arg_matches!(cmd, &["testcase", "-s=state"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
-        assert_eq!(testcase.len(), 1);
-        assert!(testcase[0].city.is_none());
-        assert_eq!(testcase[0].state, Some("state".into()));
-        assert!(testcase[0].name.is_none());
-
-        let matches = arg_matches!(cmd, &["testcase", "-c=city", "-s=state"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
-        assert_eq!(testcase.len(), 1);
-        assert_eq!(testcase[0].city, Some("city".into()));
-        assert_eq!(testcase[0].state, Some("state".into()));
-        assert!(testcase[0].name.is_none());
-
-        let matches = arg_matches!(cmd, &["testcase", "-c=city", "-s=state", "foo", "bar"]);
-        let testcase = LocationFilterArgs::new(&matches).as_location_filters().unwrap();
-        assert_eq!(testcase.len(), 2);
-        assert_eq!(testcase[0].city, Some("city".into()));
-        assert_eq!(testcase[0].state, Some("state".into()));
-        assert_eq!(testcase[0].name, Some("foo".into()));
-        assert_eq!(testcase[1].city, Some("city".into()));
-        assert_eq!(testcase[1].state, Some("state".into()));
-        assert_eq!(testcase[1].name, Some("bar".into()));
     }
 }

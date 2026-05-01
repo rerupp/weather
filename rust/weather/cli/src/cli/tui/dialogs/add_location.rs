@@ -193,9 +193,9 @@ impl LocationEditor {
     /// - `location` is the location information that will be used.
     ///
     fn initialize(&mut self, location: &Location) {
-        self.fields.get_mut(CITY).unwrap().set_text(&location.city);
-        self.fields.get_mut(STATE).unwrap().set_text(&location.state);
-        self.fields.get_mut(STATE_ID).unwrap().set_text(&location.state_id);
+        self.fields.get_mut(CITY).unwrap().set_text(&location.city_name);
+        self.fields.get_mut(STATE).unwrap().set_text(&location.region_name);
+        self.fields.get_mut(STATE_ID).unwrap().set_text(&location.region_code);
         self.fields.get_mut(ALIAS).unwrap().set_text(&location.alias);
         self.fields.get_mut(LONGITUDE).unwrap().set_text(&location.longitude);
         self.fields.get_mut(LATITUDE).unwrap().set_text(&location.latitude);
@@ -207,11 +207,13 @@ impl LocationEditor {
     fn as_location(&self) -> Location {
         let city = self.fields.get(CITY).map_or(Default::default(), |field| field.text().to_string());
         let state_id = self.fields.get(STATE_ID).map_or(Default::default(), |field| field.text().to_string());
+        // todo: the default country name and code should be externalized?
         Location {
-            name: format!("{}, {}", city, state_id),
-            city,
-            state: self.fields.get(STATE).map_or(Default::default(), |field| field.text().to_string()),
-            state_id,
+            country_name: "United States".to_owned(),
+            country_code: "US".to_owned(),
+            region_name: self.fields.get(STATE).map_or(Default::default(), |field| field.text().to_string()),
+            region_code: state_id,
+            city_name: city,
             alias: self.fields.get(ALIAS).map_or("", |field| field.text()).to_string(),
             longitude: self.fields.get(LONGITUDE).map_or("", |field| field.text()).to_string(),
             latitude: self.fields.get(LATITUDE).map_or("", |field| field.text()).to_string(),
@@ -290,14 +292,14 @@ macro_rules! validate_error {
 /// - `location` is the location information that will be validated.
 ///
 fn validate(location: &Location) -> ValidateResult {
-    if location.city.is_empty() {
-        validate_error!("The location city name cannot be empty", CITY)?;
+    if location.city_name.is_empty() {
+        validate_error!("The city name cannot be empty", CITY)?;
     }
-    if location.state.is_empty() {
-        validate_error!("The location state name cannot be empty", STATE)?;
+    if location.region_name.is_empty() {
+        validate_error!("The region name cannot be empty", STATE)?;
     }
-    if location.state_id.is_empty() {
-        validate_error!("The location abbreviated state name cannot be empty", STATE_ID)?;
+    if location.region_code.is_empty() {
+        validate_error!("The region_code cannot be empty", STATE_ID)?;
     }
     if location.alias.is_empty() {
         validate_error!("The location alias cannot be empty", ALIAS)?;

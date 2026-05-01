@@ -99,7 +99,7 @@ impl TimelineClient {
                     StatusCode::UNAUTHORIZED => String::from("API key was not accepted."),
                     StatusCode::NOT_FOUND => format!(
                         "History not found for {} at {}/{}.",
-                        self.location.name, self.location.latitude, self.location.longitude
+                        self.location, self.location.latitude, self.location.longitude
                     ),
                     _ => format!(
                         "HTTP error {}: {}.",

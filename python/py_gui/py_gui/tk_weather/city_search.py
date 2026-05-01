@@ -50,7 +50,7 @@ class CitySearch(WeatherView):
     def _refresh(self):
         stopwatch = Stopwatch()
         try:
-            self._locations = self._weather_data.backend.search_locations(self._location_criteria)
+            self._locations = self._weather_data.backend.get_cities(self._location_criteria)
             self._view.refresh(self._locations)
         except SystemError as error:
             msg = 'There was an error searching for US cities.'
@@ -125,10 +125,10 @@ class GetSearchCriteria(Dialog):
         self._name_value = tk.StringVar(parent, value=value_or_empty(self._city_filter.name))
         self._name = mk_entry(0, "Name:", self._name_value, 40)
 
-        self._state_value = tk.StringVar(parent, value=value_or_empty(self._city_filter.state))
+        self._state_value = tk.StringVar(parent, value=value_or_empty(self._city_filter.region))
         self._state = mk_entry(1, "State:", self._state_value, 25)
 
-        self._zip_code_value = tk.StringVar(parent, value=value_or_empty(self._city_filter.zip_code))
+        self._zip_code_value = tk.StringVar(parent, value=value_or_empty(self._city_filter.country))
         self._zip_code = mk_entry(2, "Zip Code:", self._zip_code_value, 6)
 
         self._limit_value = tk.StringVar(parent, value=str(self._city_filter.limit))
@@ -154,8 +154,8 @@ class GetSearchCriteria(Dialog):
 
         value_or_none = lambda v: v if v else None
         self._city_filter.name = value_or_none(self._name_value.get().strip())
-        self._city_filter.state = value_or_none(self._state_value.get().strip())
-        self._city_filter.zip_code = value_or_none(self._zip_code_value.get().strip())
+        self._city_filter.region = value_or_none(self._state_value.get().strip())
+        self._city_filter.country = value_or_none(self._zip_code_value.get().strip())
         self._city_filter.limit = int(self._limit.get())
         self._is_canceled = False
 

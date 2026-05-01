@@ -40,34 +40,27 @@ class AddLocation:
 
 class LocationEditor(Dialog):
     def __init__(self, parent, location: PyLocation, weather_data: WeatherData):
-        # self._name = None
-        # self._name_var = tk.StringVar(parent, value=location.name)
-
-        self._city = None
-        self._city_var = tk.StringVar(parent, value=location.city)
-
-        self._state = None
-        self._state_var = tk.StringVar(parent, value=location.state)
-
-        self._state_id = None
-        self._state_id_var = tk.StringVar(parent, value=location.state_id)
-
+        self._country_name = None
+        self._country_name_var = tk.StringVar(parent, value=location.country_name)
+        self._country_code = None
+        self._country_code_var = tk.StringVar(parent, value=location.country_code)
+        self._region_name = None
+        self._region_name_var = tk.StringVar(parent, value=location.region_name)
+        self._region_code = None
+        self._region_code_var = tk.StringVar(parent, value=location.region_code)
+        self._city_name = None
+        self._city_name_var = tk.StringVar(parent, value=location.city_name)
         self._alias = None
         self._alias_var = tk.StringVar(parent, value=location.alias)
-
         self._latitude = None
         self._latitude_var = tk.StringVar(parent, value=location.latitude)
-
         self._longitude = None
         self._longitude_var = tk.StringVar(parent, value=location.longitude)
-
         self._tz = None
         self._tz_var = tk.StringVar(parent, value=location.tz)
-
         self._location = location
         self._weather_data = weather_data
         self._is_cancelled = True
-
         super().__init__(parent, title='Add Location')
 
     def body(self, parent: tk.Frame) -> tk.Entry:
@@ -81,21 +74,32 @@ class LocationEditor(Dialog):
             entry.grid(row=row, column=1, **entry_options)
             return entry
 
-        # self._name = mk_entry(0, "Name:", self._name_var, 40)
-        self._city = mk_entry(0, "City:", self._city_var, 40)
-        self._state = mk_entry(1, "State:", self._state_var, 25)
-        self._state_id = mk_entry(2, "State ID:", self._state_id_var, 3)
+        self._city_name = mk_entry(0, "City Name:", self._city_name_var, 40)
+        self._alias = mk_entry(1, "Alias:", self._alias_var, 40)
+        self._region_name = mk_entry(2, "Region Name:", self._region_name_var, 40)
+        self._region_code = mk_entry(3, "Region Code:", self._region_code_var, 40)
+        self._country_name = mk_entry(4, "Country Name:", self._country_name_var, 40)
+        self._country_code = mk_entry(5, "Country Code:", self._country_code_var, 40)
+        self._latitude = mk_entry(6, "Latitude:", self._latitude_var, 20)
+        self._longitude = mk_entry(7, "Longitude:", self._longitude_var, 20)
+        self._tz = mk_entry(8, "Timezone:", self._tz_var, 20)
 
-        def lc_alias(_):
-            self._alias_var.set(self._alias_var.get().lower())
+        # force the alias to be lowercase
+        lc_alias = lambda _: self._alias_var.set(self._alias_var.get().lower())
+        self._alias.bind("<KeyPress>", lc_alias)
 
-        self._alias = mk_entry(3, "Alias:", self._alias_var, 40)
-        self._alias.bind("<KeyRelease>", lc_alias)
+        # create a validator for the alias
+        def alpha_digits_underscore(action, text):
+            if '1' == action:
+                for c in text:
+                    if not (c.isalpha() or c.isdigit() or c == '_'):
+                        return False
+            return True
 
-        self._latitude = mk_entry(4, "Latitude:", self._latitude_var, 20)
-        self._longitude = mk_entry(5, "Longitude:", self._longitude_var, 20)
-        self._tz = mk_entry(6, "Timezone:", self._tz_var, 20)
+        alias_validator = self.register(alpha_digits_underscore)
+        self._alias.configure(validate="key", validatecommand=(alias_validator, '%d', '%S'))
 
+        # create a validator for the longitude and latitude
         def number_only(action, text):
             if '1' == action:
                 for c in text:
@@ -111,11 +115,11 @@ class LocationEditor(Dialog):
 
     def apply(self):
         """Update the location with the contents of the editor."""
-        city = self._city_var.get()
-        state_id = self._state_id_var.get()
-        self._location.city = city
-        self._location.state_id = state_id
-        self._location.state = self._state_var.get()
+        self._location.country_name = self._country_name.get()
+        self._location.country_code = self._country_code.get()
+        self._location.region_name = self._region_name.get()
+        self._location.region_code = self._region_code.get()
+        self._location.city_name = self._city_name.get()
         self._location.alias = self._alias_var.get()
         self._location.latitude = self._latitude_var.get()
         self._location.longitude = self._longitude_var.get()
@@ -125,19 +129,25 @@ class LocationEditor(Dialog):
     def validate(self):
         """Called by the Dialog to validate the location contents."""
 
-        if not self._city_var.get():
+        if not self._city_name_var.get():
             _warn('A location city name is required.')
-            self.initial_focus = self._city
+            self.initial_focus = self._city_name
             return False
-
-        if not self._state_id_var.get():
-            _warn('A location state ID is required.')
-            self.initial_focus = self._state_id
+        if not self._country_name_var.get():
+            _warn('A location country name is required.')
+            self.initial_focus = self._country_name
             return False
-
-        if not self._state_var.get():
-            _warn('A location state name is required.')
-            self.initial_focus = self._state
+        if not self._country_code_var.get():
+            _warn('A location country code is required.')
+            self.initial_focus = self._country_code
+            return False
+        if not self._region_name_var.get():
+            _warn('A location region name is required.')
+            self.initial_focus = self._region_name
+            return False
+        if not self._region_code_var.get():
+            _warn('A location region code is required.')
+            self.initial_focus = self._region_code
             return False
 
         alias = self._alias_var.get()
@@ -147,7 +157,7 @@ class LocationEditor(Dialog):
             return False
         else:
             try:
-                if self._weather_data.backend.get_locations(PyLocationFilters([PyLocationFilter(name=alias)])):
+                if self._weather_data.backend.get_locations(PyLocationFilters([PyLocationFilter(city=alias)])):
                     _warn("The alias is already being used.")
                     return False
             except SystemError as error:

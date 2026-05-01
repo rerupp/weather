@@ -31,7 +31,7 @@ Crossing* site. Similar to *Dark Sky*, access to the site was free (depending on
 it provided data similar to what had already collected with the Python programs. Thats when
 the Rust version of the Python implementation began.
 
-## The `weather` Project
+## The <code>weather</code> Project
 The Python and Rust projects were previously maintained in separate repositories on `GitHub`.
 The Rust backend turned out to be very quick however the choices for a front-end are somewhat
 lacking right now. There is a Rust based CLI that has the most functionality, it supports adding, 

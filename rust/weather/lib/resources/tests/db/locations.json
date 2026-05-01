@@ -1,31 +1,37 @@
 {
   "locations": [
     {
-      "city": "Southern City",
-      "state": "Arizona",
-      "state_id": "AZ",
       "alias": "south",
+      "country-name": "United States",
+      "country-code": "US",
+      "region-name": "Georgia",
+      "region-code": "GA",
+      "city-name": "Southern City",
       "longitude": "-110.9748477",
       "latitude": "32.2228765",
-      "tz": "America/Phoenix"
+      "tz": "America/New_York"
     },
     {
-      "city": "Between City",
-      "state": "Nevada",
-      "state_id": "NV",
       "alias": "between",
+      "country-name": "United States",
+      "country-code": "US",
+      "region-name": "Kansas",
+      "region-code": "KS",
+      "city-name": "Between City",
       "longitude": "-119.7474",
       "latitude": "39.1511",
-      "tz": "America/Los_Angeles"
+      "tz": "America/Chicago"
     },
     {
-      "city": "Northern City",
-      "state": "Oregon",
-      "state_id": "OR",
       "alias": "north",
+      "country-name": "United States",
+      "country-code": "US",
+      "region-name": "Montana",
+      "region-code": "MT",
+      "city-name": "Northern City",
       "longitude": "-122.7845",
       "latitude": "45.4237",
-      "tz": "America/Los_Angeles"
+      "tz": "America/Denver"
     }
   ]
 }

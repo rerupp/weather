@@ -43,26 +43,20 @@ pub fn command() -> Command {
 /// * `args` holds the drop command arguments.
 ///
 pub fn execute(weather_admin: &WeatherAdmin, args: ArgMatches) -> cli::Result<()> {
-    let source = args.get_one::<String>(SOURCE).unwrap();
-    let destination = args.get_one::<String>(DESTINATION).unwrap();
+    let destination_alias = args.get_one::<String>(DESTINATION).unwrap();
     // make sure the destination alias name is ok
-    if destination.contains("*") {
+    if destination_alias.contains("*") {
         cli::err!("The destination alias cannot contain wildcards.")?;
     }
 
-    // get the source location
-    let source_filter = LocationFilter::name(source);
-    let mut location = match weather_admin.weather_data.get_locations(Some(vec![source_filter])) {
-        Err(error) => cli::err!("Error getting the source location: {}.", error),
-        Ok(mut locations) => match locations.len() {
-            0 => cli::err!("The source location was not found."),
-            1 => Ok(locations.remove(0)),
-            _ => cli::err!("There were multiple locations found for the source alias."),
-        },
-    }?;
-
-    // the destination location only differs by the alias
-    location.alias = destination.to_string();
-    weather_admin.copy_location(source, location)?;
+    let source_alias = args.get_one::<String>(SOURCE).unwrap();
+    match weather_admin.weather_data.get_location(LocationFilter::alias(source_alias))? {
+        None => log::warn!("The source location was not found."),
+        Some(mut destination) => {
+            // the alias is the only difference in the location properties
+            destination.alias = destination_alias.to_owned();
+            weather_admin.copy_location(source_alias, destination)?;
+        }
+    }
     Ok(())
 }

@@ -9,7 +9,7 @@ use weather_lib::prelude::{
 };
 
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyWeatherConfig {
     pub config_file: Option<PathBuf>,
     pub dirname: Option<PathBuf>,
@@ -36,16 +36,18 @@ impl PyWeatherConfig {
 
 /// The `Python` data that comprises a location.
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyLocation {
+    /// The location country name.
+    pub country_name: String,
+    /// The location country code.
+    pub country_code: String,
+    /// The location region name.
+    pub region_name: String,
+    /// The location region code.
+    pub region_code: String,
     /// The location city name.
-    pub city: String,
-    /// The locations full state name.
-    pub state: String,
-    /// The locations two-letter abbreviation.
-    pub state_id: String,
-    /// The name of a location.
-    pub name: String,
+    pub city_name: String,
     /// A unique nickname of a location.
     pub alias: String,
     /// The location longitude.
@@ -60,84 +62,70 @@ impl From<&Location> for PyLocation {
         location.clone().into()
     }
 }
+macro_rules! map_location {
+    ($location: ident) => {
+        Self {
+            country_name: $location.country_name,
+            country_code: $location.country_code,
+            region_name: $location.region_name,
+            region_code: $location.region_code,
+            city_name: $location.city_name,
+            alias: $location.alias,
+            longitude: $location.longitude,
+            latitude: $location.latitude,
+            tz: $location.tz,
+        }
+    };
+}
 impl From<Location> for PyLocation {
     fn from(location: Location) -> Self {
-        Self {
-            city: location.city,
-            state: location.state,
-            state_id: location.state_id,
-            name: location.name,
-            alias: location.alias,
-            longitude: location.longitude,
-            latitude: location.latitude,
-            tz: location.tz,
-        }
+        map_location!(location)
     }
 }
 impl From<PyLocation> for Location {
     fn from(location: PyLocation) -> Self {
-        Self {
-            city: location.city,
-            state: location.state,
-            state_id: location.state_id,
-            name: location.name,
-            alias: location.alias,
-            longitude: location.longitude,
-            latitude: location.latitude,
-            tz: location.tz,
-        }
+        map_location!(location)
     }
 }
 #[pymethods]
 impl PyLocation {
     #[new]
-    #[pyo3(signature = (city=None, state=None, state_id=None, alias=None, latitude=None, longitude=None, tz=None))]
+    #[pyo3(signature = (city_name=None, country_name=None, country_code=None, region_name=None, region_code=None, alias=None, latitude=None, longitude=None, tz=None))]
     fn new(
-        city: Option<String>,
-        state: Option<String>,
-        state_id: Option<String>,
+        city_name: Option<String>,
+        country_name: Option<String>,
+        country_code: Option<String>,
+        region_name: Option<String>,
+        region_code: Option<String>,
         alias: Option<String>,
         latitude: Option<String>,
         longitude: Option<String>,
         tz: Option<String>,
     ) -> Self {
-        let city = city.unwrap_or(Default::default()).trim().to_string();
-        let state_id = state_id.unwrap_or(Default::default()).trim().to_string();
-        let name = if city.is_empty() && state_id.is_empty() {
-            Default::default()
-        } else {
-            format!("{city}, {state_id}")
-        };
         Self {
-            city,
-            state: state.unwrap_or(Default::default()).trim().to_string(),
-            state_id,
-            name,
-            alias: alias.unwrap_or(Default::default()),
-            latitude: latitude.unwrap_or(Default::default()).trim().to_string(),
-            longitude: longitude.unwrap_or(Default::default()).trim().to_string(),
-            tz: tz.unwrap_or(Default::default()).trim().to_string(),
+            city_name: city_name.unwrap_or_default().trim().to_string(),
+            country_name: country_name.unwrap_or_default().trim().to_string(),
+            country_code: country_code.unwrap_or_default().trim().to_string(),
+            region_name: region_name.unwrap_or_default().trim().to_string(),
+            region_code: region_code.unwrap_or_default().trim().to_string(),
+            alias: alias.unwrap_or_default().trim().to_string(),
+            latitude: latitude.unwrap_or_default().trim().to_string(),
+            longitude: longitude.unwrap_or_default().trim().to_string(),
+            tz: tz.unwrap_or_default().trim().to_string(),
         }
     }
     fn __str__(&self) -> String {
-        format!("{:?}", self)
+        format!("{} ({})", self.city_name, self.region_code)
     }
     fn __copy__(&self) -> PyLocation {
-        PyLocation::new(
-            Some(self.city.clone()),
-            Some(self.state.clone()),
-            Some(self.state_id.clone()),
-            Some(self.alias.clone()),
-            Some(self.latitude.clone()),
-            Some(self.longitude.clone()),
-            Some(self.tz.clone()),
-        )
+        self.clone()
     }
 }
 
 /// The weather history data.
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
+// RustRover unfortunately sees PyHistory as a duplicate of History
 pub struct PyHistory {
     /// The location alias name.
     pub alias: String,
@@ -182,58 +170,41 @@ pub struct PyHistory {
     /// A summary of the daily weather.
     pub description: Option<String>,
 }
+macro_rules! map_history {
+    ($history: ident) => {
+        Self {
+            alias: $history.alias,
+            date: $history.date,
+            temperature_high: $history.temperature_high,
+            temperature_low: $history.temperature_low,
+            temperature_mean: $history.temperature_mean,
+            dew_point: $history.dew_point,
+            humidity: $history.humidity,
+            precipitation_chance: $history.precipitation_chance,
+            precipitation_type: $history.precipitation_type,
+            precipitation_amount: $history.precipitation_amount,
+            wind_speed: $history.wind_speed,
+            wind_gust: $history.wind_gust,
+            wind_direction: $history.wind_direction,
+            cloud_cover: $history.cloud_cover,
+            pressure: $history.pressure,
+            uv_index: $history.uv_index,
+            sunrise: $history.sunrise,
+            sunset: $history.sunset,
+            moon_phase: $history.moon_phase,
+            visibility: $history.visibility,
+            description: $history.description,
+        }
+    };
+}
 impl From<History> for PyHistory {
     fn from(history: History) -> Self {
-        Self {
-            alias: history.alias,
-            date: history.date,
-            temperature_high: history.temperature_high,
-            temperature_low: history.temperature_low,
-            temperature_mean: history.temperature_mean,
-            dew_point: history.dew_point,
-            humidity: history.humidity,
-            precipitation_chance: history.precipitation_chance,
-            precipitation_type: history.precipitation_type,
-            precipitation_amount: history.precipitation_amount,
-            wind_speed: history.wind_speed,
-            wind_gust: history.wind_gust,
-            wind_direction: history.wind_direction,
-            cloud_cover: history.cloud_cover,
-            pressure: history.pressure,
-            uv_index: history.uv_index,
-            sunrise: history.sunrise,
-            sunset: history.sunset,
-            moon_phase: history.moon_phase,
-            visibility: history.visibility,
-            description: history.description,
-        }
+        map_history!(history)
     }
 }
 impl From<PyHistory> for History {
     fn from(location: PyHistory) -> Self {
-        Self {
-            alias: location.alias,
-            date: location.date,
-            temperature_high: location.temperature_high,
-            temperature_low: location.temperature_low,
-            temperature_mean: location.temperature_mean,
-            dew_point: location.dew_point,
-            humidity: location.humidity,
-            precipitation_chance: location.precipitation_chance,
-            precipitation_type: location.precipitation_type,
-            precipitation_amount: location.precipitation_amount,
-            wind_speed: location.wind_speed,
-            wind_gust: location.wind_gust,
-            wind_direction: location.wind_direction,
-            cloud_cover: location.cloud_cover,
-            pressure: location.pressure,
-            uv_index: location.uv_index,
-            sunrise: location.sunrise,
-            sunset: location.sunset,
-            moon_phase: location.moon_phase,
-            visibility: location.visibility,
-            description: location.description,
-        }
+        map_history!(location)
     }
 }
 #[pymethods]
@@ -258,7 +229,7 @@ impl PyHistory {
 
 /// A locations daily weather history.
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyDailyHistories {
     /// The location metadata.
     pub location: PyLocation,
@@ -326,7 +297,7 @@ impl PyHistoriesFuture {
 }
 
 #[derive(Clone, Debug)]
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct PyDateRange {
     inner: DateRange,
 }
@@ -378,18 +349,18 @@ impl PyDateRange {
                 Ok(())
             }
         }
-        // self.inner.end = end;
-        // Ok(())
     }
     fn __str__(&self) -> String {
         self.inner.to_string()
     }
     fn __copy__(&self) -> PyDateRange {
-        // PyDateRange::new(self.inner.start, self.inner.end).unwrap()
         PyDateRange { inner: self.inner.clone() }
     }
     fn __eq__(&self, other: &Self) -> bool {
         self.inner.start == other.inner.start && self.inner.end == other.inner.end
+    }
+    fn annualized(&self) -> Vec<PyDateRange> {
+        self.inner.annualized().into_iter().map(|daterange| daterange.into()).collect()
     }
     fn contains(&self, date: NaiveDate) -> bool {
         self.inner.contains(&date)
@@ -461,28 +432,28 @@ impl PyHistorySummaries {
 /// The data structure used to get locations.
 ///
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyLocationFilter {
-    /// A location can be searched by the city name.
+    /// A location can be searched for by its alias.
+    pub alias: Option<String>,
+    /// A location can be searched for by its name.
     pub city: Option<String>,
-
-    /// A location can be searched by the state name (full or two-letter form).
-    pub state: Option<String>,
-
-    /// A location can be searched for by its name or alias.
-    pub name: Option<String>,
+    /// A location can be searched by the region name or code.
+    pub region: Option<String>,
+    /// A location can be searched by the country name or code.
+    pub country: Option<String>,
 }
 impl From<PyLocationFilter> for LocationFilter {
-    fn from(py_filter: PyLocationFilter) -> Self {
-        LocationFilter { city: py_filter.city, state: py_filter.state, name: py_filter.name }
+    fn from(filter: PyLocationFilter) -> Self {
+        Self { alias: filter.alias, city: filter.city, region: filter.region, country: filter.country }
     }
 }
 #[pymethods]
 impl PyLocationFilter {
     #[new]
-    #[pyo3(signature = (city=None, state=None, name=None))]
-    pub fn new(city: Option<String>, state: Option<String>, name: Option<String>) -> Self {
-        Self { city, state, name }
+    #[pyo3(signature = (alias=None, city=None, region=None, country=None))]
+    pub fn new(alias: Option<String>, city: Option<String>, region: Option<String>, country: Option<String>) -> Self {
+        Self { alias, city, region, country }
     }
     fn ___str__(&self) -> String {
         format!("{:?}", self)
@@ -492,7 +463,7 @@ impl PyLocationFilter {
 /// The collection of filters used to select locations.
 ///
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyLocationFilters {
     pub filters: Vec<PyLocationFilter>,
 }
@@ -518,31 +489,28 @@ impl PyLocationFilters {
 
 /// The filter used to select US cities.
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyCityFilter {
     /// The optional city name.
     pub name: Option<String>,
-
-    /// The optional state name.
-    pub state: Option<String>,
-
-    /// The optional zip code.
-    pub zip_code: Option<String>,
-
+    /// The optional region name.
+    pub region: Option<String>,
+    /// The optional country name.
+    pub country: Option<String>,
     /// Limits the number of matches that will be returned.
     pub limit: usize,
 }
 impl From<PyCityFilter> for CityFilter {
     fn from(py_filter: PyCityFilter) -> Self {
-        Self { name: py_filter.name, state: py_filter.state, zip_code: py_filter.zip_code, limit: py_filter.limit }
+        Self { name: py_filter.name, region: py_filter.region, country: py_filter.country, limit: py_filter.limit }
     }
 }
 #[pymethods]
 impl PyCityFilter {
     #[new]
-    #[pyo3(signature = (name=None, state=None, zip_code=None, limit=25))]
-    fn new(name: Option<String>, state: Option<String>, zip_code: Option<String>, limit: Option<usize>) -> Self {
-        Self { name, state, zip_code, limit: limit.unwrap_or(25) }
+    #[pyo3(signature = (name=None, region=None, country=None, limit=25))]
+    fn new(name: Option<String>, region: Option<String>, country: Option<String>, limit: Option<usize>) -> Self {
+        Self { name, region, country, limit: limit.unwrap_or(25) }
     }
     fn __str__(&self) -> String {
         format!("{:?}", self)
@@ -551,7 +519,7 @@ impl PyCityFilter {
 
 /// The US City state names.
 #[derive(Clone, Debug, Default)]
-#[pyclass(get_all, set_all)]
+#[pyclass(get_all, set_all, from_py_object)]
 pub struct PyState {
     /// The states full name.
     pub name: String,

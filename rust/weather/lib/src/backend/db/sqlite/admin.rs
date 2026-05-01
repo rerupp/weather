@@ -1,13 +1,14 @@
 mod history_loader;
 
-use super::{commit_tx, create_tx, history, locations, prepare_sql, query_rows, us_cities::admin::UsCitiesAdmin};
+use super::{cities, commit_tx, create_tx, history, locations, prepare_sql, query_rows};
 use crate::{
-    admin_prelude::{DbDetails, DbProblems, LocationDetails, UsCityDetails},
+    admin_prelude::{DbDetails, DbProblems, LocationDetails},
     backend::{db::admin::DbAdmin, filesys::{fs_lib, WeatherDir}},
     entities::LocationFilter,
 };
 use rusqlite::{params, Connection, Row};
 use std::{fmt::Formatter, rc::Rc};
+use crate::admin_prelude::CitiesDetails;
 
 /// Create a database history specific error message.
 macro_rules! error {
@@ -45,7 +46,7 @@ impl SQLiteAdmin {
         const SCHEMA_SQL: &str =
             "SELECT COUNT(*) FROM sqlite_schema WHERE tbl_name IN ('locations', 'metadata', 'history')";
         let mut stmt = conn.prepare(SCHEMA_SQL).unwrap();
-        match stmt.query_row(params![], |row| row.get::<usize, usize>(0)) {
+        match stmt.query_row(params![], |row| row.get::<_, i64>(0)) {
             Err(error) => err!("sqlite_schema query failed: {error}")?,
             Ok(count) => Ok(count > 0),
         }
@@ -141,13 +142,17 @@ impl DbAdmin for SQLiteAdmin {
                     Ok(Some(row)) => {
                         // mine the row data
                         #[inline]
-                        fn next_details(row_: &Row) -> super::SqlResult<(String, usize, usize)> {
-                            Ok((row_.get(0)?, row_.get(1)?, row_.get(2)?))
+                        fn next_details(row_: &Row) -> super::SqlResult<LocationDetails> {
+                            Ok(LocationDetails {
+                                alias: row_.get(0)?,
+                                size: row_.get::<_, i64>(1)? as usize,
+                                histories: row_.get::<_, i64>(2)? as usize,
+                            })
                         }
                         match next_details(row) {
                             Err(error) => err!("failed to get db details from row: {:?}", error)?,
-                            Ok((alias, size, histories)) => {
-                                location_details.push(LocationDetails { alias, size, histories });
+                            Ok(details) => {
+                                location_details.push(details);
                             }
                         }
                     }
@@ -158,7 +163,14 @@ impl DbAdmin for SQLiteAdmin {
         Ok(db_details)
     }
 
-    fn history_check(&self, _repair: bool) -> Option<DbProblems> {
+    /// Scans weather data history making sure the database is in sync with the backing store.
+    ///
+    /// # Arguments
+    ///
+    /// * `repair` is currently not implemented.
+    ///
+    #[allow(unused_variables)]
+    fn history_check(&self, repair: bool) -> Option<DbProblems> {
         let mut conn = match super::db_conn!(&self.weather_dir) {
             Ok(conn) => conn,
             Err(error) => {
@@ -215,9 +227,9 @@ impl DbAdmin for SQLiteAdmin {
         for fs_location in &fs_locations {
             if !db_locations.iter().any(|db_location| fs_location.alias == db_location.alias) {
                 locations::add_db(&tx, fs_location.clone())?;
-                log::debug!("{} ({}) added.", fs_location.name, fs_location.alias);
+                log::debug!("{fs_location} added.");
             } else if locations::update_db(&tx, fs_location)? {
-                log::debug!("{} ({}) updated.", fs_location.name, fs_location.alias);
+                log::debug!("{fs_location} updated.");
             }
         }
         commit_tx!(tx, "failed to commit tx to add/update locations")?;
@@ -229,36 +241,33 @@ impl DbAdmin for SQLiteAdmin {
         Ok(fs_locations.len())
     }
 
-    /// Initialize the US cities database.
+    /// Initialize the Cities database.
     ///
-    fn us_cities_init(&self) -> crate::Result<()> {
-        UsCitiesAdmin::new(&self.weather_dir).init_schema()
+    fn cities_init(&self) -> crate::Result<()> {
+        cities::init_schema(&self.weather_dir)
     }
 
-    /// Delete the US Cities database.
+    /// Delete the Cities database.
     ///
-    fn us_cities_delete(&self) -> crate::Result<()> {
-        UsCitiesAdmin::new(&self.weather_dir).delete()
+    fn cities_delete(&self) -> crate::Result<()> {
+        cities::delete(&self.weather_dir)
     }
 
-    /// Load the US cities database.
+    /// Load a country cities metadata into the database.
     ///
     /// # Arguments
     ///
-    /// * `uscities_path` contains the US cities metadata that will be loaded.
+    /// * `csv_database` contains the CSV cities metadata that will be loaded.
+    /// * `reload` will remove existing country cities before adding the cities.
     ///
-    fn us_cities_load(&self, uscities_path: &str) -> crate::Result<usize> {
-        let db_admin = UsCitiesAdmin::new(&self.weather_dir);
-        let count = db_admin.load_db(uscities_path)?;
-        // a quick check to make sure the db is intact
-        db_admin.db_details()?;
-        Ok(count)
+    fn cities_load(&self, uscities_path: &str, reload: bool) -> crate::Result<usize> {
+        cities::load(&self.weather_dir, uscities_path, reload)
     }
 
-    /// Retrieve information about the US Cities database.
+    /// Get details about the Cities database.
     ///
-    fn us_cities_details(&self) -> crate::Result<UsCityDetails> {
-        UsCitiesAdmin::new(&self.weather_dir).db_details()
+    fn cities_details(&self) -> crate::Result<Option<CitiesDetails>> {
+        cities::details(&self.weather_dir)
     }
 }
 

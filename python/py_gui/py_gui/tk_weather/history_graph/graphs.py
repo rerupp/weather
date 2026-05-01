@@ -157,15 +157,16 @@ class TemperatureGraph(BaseGraph):
         """Called by the base class to create the temperature plots."""
         for daily_histories in self._locations_daily_histories:
             x = _get_plot_dates(daily_histories)
+            name = f'{daily_histories.location.city_name} ({daily_histories.location.region_code})'
             if self._temperature_type & TemperaturesType.HIGH:
                 y = [h.temperature_high for h in daily_histories.histories]
-                self._ax.plot(x, y, label=self.__label(daily_histories.location.name, 'High'))
+                self._ax.plot(x, y, label=self.__label(name, 'High'))
             if self._temperature_type & TemperaturesType.LOW:
                 y = [h.temperature_low for h in daily_histories.histories]
-                self._ax.plot(x, y, label=self.__label(daily_histories.location.name, 'Low'))
+                self._ax.plot(x, y, label=self.__label(name, 'Low'))
             if self._temperature_type & TemperaturesType.MEAN:
                 y = [h.temperature_mean for h in daily_histories.histories]
-                self._ax.plot(x, y, label=self.__label(daily_histories.location.name, 'Mean'))
+                self._ax.plot(x, y, label=self.__label(name, 'Mean'))
 
 
 class PrecipitationGraph(BaseGraph):
@@ -196,15 +197,16 @@ class PrecipitationGraph(BaseGraph):
         percent = lambda v: (v * 100.0) if v else 0.0
         for daily_histories in self._locations_daily_histories:
             x = _get_plot_dates(daily_histories)
+            name = f'{daily_histories.location.city_name} ({daily_histories.location.region_code})'
             if self._precipitation_type == PrecipitationType.CLOUD_COVER:
                 y = [percent(h.cloud_cover) for h in daily_histories.histories]
-                self._ax.plot(x, y, label=daily_histories.location.name)
+                self._ax.plot(x, y, label=name)
             elif self._precipitation_type == PrecipitationType.HUMIDITY:
                 y = [percent(h.humidity) for h in daily_histories.histories]
-                self._ax.plot(x, y, label=daily_histories.location.name)
+                self._ax.plot(x, y, label=name)
             else:
                 y = [h.precipitation_amount for h in daily_histories.histories]
-                self._ax.plot(x, y, label=daily_histories.location.name)
+                self._ax.plot(x, y, label=name)
 
 
 class ConditionsGraph(BaseGraph):
@@ -248,12 +250,13 @@ class ConditionsGraph(BaseGraph):
         mph = lambda v: v if v else 0
         for daily_histories in self._locations_daily_histories:
             x = _get_plot_dates(daily_histories)
+            name = f'{daily_histories.location.city_name} ({daily_histories.location.region_code})'
             if self._conditions_type & ConditionsType.WIND_SPEED:
                 y = [mph(h.wind_speed) for h in daily_histories.histories]
-                self._ax.plot(x, y, label=self.__label(daily_histories.location.name, 'Wind Speed'))
+                self._ax.plot(x, y, label=self.__label(name, 'Wind Speed'))
             if self._conditions_type & ConditionsType.WIND_GUST:
                 y = [mph(h.wind_gust) for h in daily_histories.histories]
-                self._ax.plot(x, y, label=self.__label(daily_histories.location.name, 'Wind Gust'))
+                self._ax.plot(x, y, label=self.__label(name, 'Wind Gust'))
             if self._conditions_type & ConditionsType.UV_INDEX:
                 y = [h.uv_index for h in daily_histories.histories]
-                self._ax.plot(x, y, label=daily_histories.location.name)
+                self._ax.plot(x, y, label=name)

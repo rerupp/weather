@@ -32,7 +32,8 @@ class HistoryView(Collapsible):
         self._history_dates = history_dates
 
     def compose(self) -> ComposeResult:
-        with Collapsible(id=self._history_dates.location.alias, title=self._history_dates.location.name,
+        with Collapsible(id=self._history_dates.location.alias,
+                        title=f"{self._history_dates.location.city_name} ({self._history_dates.location.region_code})",
                          collapsed=True):
             with Collapsible(id=self.LOCATION_DETAILS_ID[1:], title="Location Details", collapsed=False):
                 yield LocationDetails(self._history_dates, self._weather_data, id=self.DETAILS_ID[1:])
@@ -57,4 +58,4 @@ class HistoryView(Collapsible):
             if not report.collapsed:
                 report.query_one(self.REPORT_ID, HistoryReport).initial_focus()
                 return
-            log.debug(f"both details and report are collapsed ({self._history_dates.location.name})")
+            log.debug(f"both details and report are collapsed ({self})")

@@ -106,7 +106,7 @@ class Locations(WeatherView):
         def history_report():
             report = HistoryReport(self._parent, location.alias, self._weather_data)
             if report:
-                self._add_tab(f'{location.name} Report', report)
+                self._add_tab(f'{location.city_name} ({location.region_code}) Report', report)
 
         popup_menu.add_command(label="History Report", command=history_report)
 

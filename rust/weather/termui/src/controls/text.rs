@@ -143,10 +143,19 @@ pub struct EditField {
     label: Label,
     /// The editor that will be used.
     editor: Editor,
+    /// When `true` the edit field is readonly.
+    readonly: bool,
 }
 impl std::fmt::Display for EditField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EditField[{}] editor={} active={}", self.label.id(), self.editor, self.label.is_active())
+        write!(
+            f,
+            "EditField[{}] editor={} active={} readonly={}",
+            self.label.id(),
+            self.editor,
+            self.label.is_active(),
+            self.readonly
+        )
     }
 }
 impl EditField {
@@ -158,7 +167,17 @@ impl EditField {
     /// * `editor` is the type of editor that will be used.
     ///
     pub fn new(label: Label, editor: impl Into<Editor>) -> Self {
-        Self { label, editor: editor.into() }
+        Self { label, editor: editor.into(), readonly: false }
+    }
+    /// A builder method that make the edit field readonly.
+    ///
+    /// # Arguments
+    ///
+    /// * `readonly` determines if the edit field is considered readonly
+    ///
+    pub fn with_readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
     }
 }
 impl Control for EditField {
@@ -224,8 +243,17 @@ impl Control for EditField {
     /// - `key_event` is guaranteed to be a [key press](KeyEventKind::Press) event.
     ///
     fn key_pressed(&mut self, key_event: &KeyEvent) -> ControlFlow<ControlResult> {
+        if self.readonly {
+            log::warn!("{self} is read-only.");
+            ControlFlow::Break(ControlResult::NotAllowed)?;
+        }
         log_key_pressed!(self.to_string());
         self.editor.key_pressed(key_event)
+    }
+    /// Check if the editor is read-only.
+    ///
+    fn is_readonly(&self) -> bool {
+        self.readonly
     }
 }
 impl EditControl for EditField {
@@ -329,7 +357,7 @@ impl EditFieldGroup {
         self.title_alignment = title_alignment;
         self
     }
-    /// A builder method that sets edit field wrapping behaviour allowing the active edit field to move
+    /// A builder method that sets edit field wrapping behavior allowing the active edit field to move
     /// from first to last or vice versa.
     ///
     pub fn with_wrap(mut self) -> Self {
@@ -349,8 +377,24 @@ impl EditFieldGroup {
     /// - `ch` is some edit field selector character.
     ///
     fn find_selector(&self, ch: char) -> Option<&EditField> {
-        let lhs = ch.to_lowercase().to_string();
-        self.fields.iter().find(|edit_field| lhs == edit_field.selector().to_lowercase().to_string())
+        let selector = ch.to_lowercase().to_string();
+        macro_rules! find_selector {
+            ($iter: expr) => {
+                $iter.find(|field| selector == field.selector().to_lowercase().to_string())
+            };
+        }
+        // start from the active field to find the next selector
+        let mut iter = self.fields.iter();
+        while let Some(edit_field) = iter.next() {
+            if edit_field.is_active() {
+                match find_selector!(iter) {
+                    // if you didn't find the selector, find the first one
+                    None => break,
+                    Some(next) => return Some(next),
+                }
+            }
+        }
+        find_selector!(self.fields.iter())
     }
 }
 impl ControlGroup<EditField> for EditFieldGroup {
@@ -388,13 +432,17 @@ impl ControlGroup<EditField> for EditFieldGroup {
     fn set_active(&mut self, id: impl ToString) -> ControlFlow<ControlResult> {
         let id = id.to_string();
         // scan the fields to make sure there is an id match
-        match self.fields.iter().find(|edit_field| &id == edit_field.id()) {
+        match self.fields.iter().find(|field| &id == field.id()) {
             None => {
                 // if you didn't find the field then code is AFU
                 debug_assert!(false, "Did not find edit field '{}' in the edit group\n{:#?}", id, self);
             }
-            Some(_) => {
-                self.fields.iter_mut().for_each(|edit_field| edit_field.set_active(&id == edit_field.id()));
+            Some(edit_field) => {
+                // don't allow a readonly field to be set active
+                if edit_field.is_readonly() {
+                    break_event!(ControlResult::NotAllowed)?;
+                }
+                self.fields.iter_mut().for_each(|field| field.set_active(&id == field.id()));
             }
         }
         break_event!(ControlResult::Continue)
@@ -415,18 +463,14 @@ impl ControlGroup<EditField> for EditFieldGroup {
                     false => break_event!(ControlResult::NextGroup)?,
                 }
             }
-            (KeyModifiers::NONE, KeyCode::Up) => {
-                match previous_control(as_mut_refs!(self.fields), self.wrap) {
-                    true => break_event!(ControlResult::Continue)?,
-                    false => break_event!(ControlResult::PrevGroup)?,
-                }
-            }
-            (KeyModifiers::SHIFT, KeyCode::BackTab) => {
-                match previous_control(as_mut_refs!(self.fields), self.wrap) {
-                    true => break_event!(ControlResult::Continue)?,
-                    false => break_event!(ControlResult::PrevGroup)?,
-                }
-            }
+            (KeyModifiers::NONE, KeyCode::Up) => match previous_control(as_mut_refs!(self.fields), self.wrap) {
+                true => break_event!(ControlResult::Continue)?,
+                false => break_event!(ControlResult::PrevGroup)?,
+            },
+            (KeyModifiers::SHIFT, KeyCode::BackTab) => match previous_control(as_mut_refs!(self.fields), self.wrap) {
+                true => break_event!(ControlResult::Continue)?,
+                false => break_event!(ControlResult::PrevGroup)?,
+            },
             (KeyModifiers::ALT, KeyCode::Char(ch)) => match self.find_selector(ch) {
                 // continue and don't break to allow the ALT key to be seen by other controls
                 None => (),
@@ -438,7 +482,10 @@ impl ControlGroup<EditField> for EditFieldGroup {
             _ => {
                 for edit_field in &mut self.fields {
                     if edit_field.is_active() {
-                        edit_field.key_pressed(&key_event)?;
+                        // don't pass on the key event if the edit_field is read only
+                        if ! edit_field.readonly {
+                            edit_field.key_pressed(&key_event)?;
+                        }
                     }
                 }
                 // continue and don't break to allow the key to be seen by other controls

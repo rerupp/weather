@@ -106,7 +106,7 @@ impl MessageDialog {
             MessageStyle::Warning => " Warning ",
             MessageStyle::Normal => " Information ",
         };
-        // add the dialog boiler plate
+        // add the dialog boilerplate
         let dialog_area = center(area, self.size);
         let dialog_styles = match self.message_style {
             MessageStyle::Error => self.catalog_type.get_styles(ControlState::Error),
@@ -154,7 +154,6 @@ mod message_parse {
         // Remove and leading or trailing whitespace.
         trim: bool,
     }
-    #[allow(unused)]
     impl ToRows {
         pub fn new(width: usize) -> Self {
             Self { width, truncate: false, trim: false }

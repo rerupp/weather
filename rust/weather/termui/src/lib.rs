@@ -208,11 +208,12 @@ mod styles;
 
 pub mod prelude {
     //! This is the full list of things available from the library.
+    //!
     pub use super::{
         beep, break_event, center,
         console::{Application, ApplicationResult, Console},
         controls::{
-            cancel_button, ok_button, Button, ButtonBar, Checkbox, CheckBoxGroup, Control, ControlGroup, ControlResult,
+            cancel_button, ok_button, Button, ButtonBar, CheckBoxGroup, Checkbox, Control, ControlGroup, ControlResult,
             DateEditor, EditControl, EditField, EditFieldGroup, Editor, Label, ReportView, TextEditor,
             CANCEL_BUTTON_ID, OK_BUTTON_ID,
         },

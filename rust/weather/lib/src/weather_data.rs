@@ -3,7 +3,7 @@ use crate::{
     backend::{create_backend, Backend},
     histories_future,
     prelude::{
-        CityFilter, Configuration, DailyHistories, DateRange, HistoriesFuture, HistoryDates, HistorySummaries,
+        City, Configuration, DailyHistories, DateRange, HistoriesFuture, HistoryDates, HistorySummaries,
         Location, LocationFilter, State,
     },
 };
@@ -129,6 +129,21 @@ impl WeatherData {
         self.backend.get_locations(filters)
     }
 
+    /// Get the properties for a location.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` is used to select the location.
+    ///
+    pub fn get_location(&self, filter: LocationFilter) -> crate::Result<Option<Location>> {
+        let mut locations = self.backend.get_locations(Some(vec![filter.clone()]))?;
+        match locations.len() {
+            1 => Ok(Some(locations.remove(0))),
+            0 => Ok(None),
+            _ => Err(crate::Error(format!("Multiple locations were found for {filter}"))),
+        }
+    }
+
     /// Add a location to weather data.
     ///
     /// # Arguments
@@ -160,15 +175,15 @@ impl WeatherData {
         self.backend.delete_location(filter)
     }
 
-    /// Search for locations that can be added to weather data.
+    /// Search for cities that can be added to weather data.
     ///
     /// # Arguments
     ///
     /// - `criteria` provides the search parameters.
     ///
-    pub fn search_locations(&self, filter: CityFilter) -> crate::Result<Vec<Location>> {
-        crate::log_elapsed_time!(info, "search_locations");
-        self.backend.search_locations(filter)
+    pub fn get_cities(&self, filters: Option<Vec<LocationFilter>>, limit: usize) -> crate::Result<Vec<City>> {
+        crate::log_elapsed_time!(info, "get_cities");
+        self.backend.get_cities(filters, limit)
     }
 
     /// Get the state metadata for US Cities.

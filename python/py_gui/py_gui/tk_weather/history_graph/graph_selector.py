@@ -57,12 +57,14 @@ class GraphSelector(Dialog):
         locations_wo_histories = []
         for location_history_dates in history_dates:
             if not location_history_dates.history_dates:
-                locations_wo_histories.append(location_history_dates.location.name)
+                location = location_history_dates.location
+                locations_wo_histories.append(f'{location.city_name} ({location.region_code})')
                 continue
             if len(location_history_dates.history_dates) == 1:
                 date_range = location_history_dates.history_dates[0]
                 if date_range.start == date_range.end:
-                    locations_wo_histories.append(location_history_dates.location.name)
+                    location = location_history_dates.location
+                    locations_wo_histories.append(f'{location.city_name} ({location.region_code})')
                     continue
             self._locations_history_dates.append(location_history_dates)
         if locations_wo_histories:
@@ -82,7 +84,8 @@ class GraphSelector(Dialog):
 
     def body(self, parent: tk.Frame) -> tk.Widget:
         """Add the graph selection fields to the Dialog provided frame."""
-        primary_location_name = self._locations_history_dates[self._graph_selection.primary_location].location.name
+        primary_location = self._locations_history_dates[self._graph_selection.primary_location].location
+        primary_location_name = f'{primary_location.city_name} ({primary_location.region_code})'
         # the primary location selector
         if len(self._locations_history_dates) > 1:
             locations_frame = tk.LabelFrame(parent, text='Locations', labelanchor=tk.N, padx=5, pady=2)

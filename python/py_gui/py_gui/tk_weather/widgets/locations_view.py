@@ -69,7 +69,8 @@ class LocationsView(tk.Frame):
         measure = nametofont(Style().lookup(self._tree.winfo_class(), 'font')).measure
         pad = measure('0' * 2)
         for location in locations:
-            column_widths[0] = max(column_widths[0], measure(location.name) + pad)
+            name = f"{location.city_name} ({location.region_code})"
+            column_widths[0] = max(column_widths[0], measure(name) + pad)
             column_widths[1] = max(column_widths[1], measure(location.alias) + pad)
             column_widths[2] = max(column_widths[2], measure(location.latitude) + pad)
             column_widths[3] = max(column_widths[3], measure(location.longitude) + pad)
@@ -81,8 +82,9 @@ class LocationsView(tk.Frame):
 
         # repopulate the tree
         for index, location in enumerate(locations):
+            name = f"{location.city_name} ({location.region_code})"
             self._tree.insert('', 'end', iid=index, values=(
-                location.name, location.alias, location.latitude, location.longitude, location.tz
+                name, location.alias, location.latitude, location.longitude, location.tz
             ))
 
         # set focus to the first item in the tree

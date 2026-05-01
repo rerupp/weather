@@ -6,8 +6,7 @@ mod filesys;
 pub(crate) use filesys::WeatherDir;
 
 use crate::prelude::{
-    CityFilter, Configuration, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter,
-    State,
+    City, Configuration, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter, State,
 };
 use std::sync::Arc;
 
@@ -21,7 +20,7 @@ pub fn create_backend(configuration: Arc<Configuration>) -> crate::Result<Box<dy
     if configuration.weather_data.fs_only {
         filesys::create_filesys_backend(configuration)
     } else {
-        let weather_dir = filesys::WeatherDir::try_from(&configuration)?;
+        let weather_dir = WeatherDir::try_from(&configuration)?;
         if db::is_available(&weather_dir) {
             db::create_db_backend(configuration)
         } else {
@@ -101,26 +100,32 @@ pub(crate) trait Backend: Send + Sync {
     ///
     fn update_location(&self, location: Location) -> crate::Result<bool>;
 
-    /// Search for a location.
+    /// Search the Cities database for locations.
     ///
     /// # Arguments
     ///
-    /// * `filter` identifies which cities are being searched for (default is all).
+    /// * `filters` is used to find cities.
+    /// * `limit` restricts the number of cities returned.
     ///
-    fn search_locations(&self, filter: CityFilter) -> crate::Result<Vec<Location>>;
+    #[allow(unused_variables)]
+    fn get_cities(&self, filters: Option<Vec<LocationFilter>>, limit: usize) -> crate::Result<Vec<City>> {
+        Err(crate::Error("Get cities is not available.".to_string()))
+    }
 
     /// Get a list of the US City states.
     ///
-    fn get_states(&self) -> crate::Result<Vec<State>>;
+    fn get_states(&self) -> crate::Result<Vec<State>> {
+        Err(crate::Error("Get states is not available.".to_string()))
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod testlib {
     //! A library for common utilities used by the backend.
 
+    use crate::backend::WeatherDir;
     use rand::Rng;
     use std::{env, fmt, fs, path};
-    use crate::backend::WeatherDir;
 
     /// Used to create a temporary weather directory and delete it as part of the function exit.
     #[derive(Debug)]
@@ -209,6 +214,6 @@ pub(crate) mod testlib {
     }
 
     pub(crate) fn test_resources() -> path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join("tests")
+        path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join("tests")
     }
 }

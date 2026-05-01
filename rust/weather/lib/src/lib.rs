@@ -81,8 +81,8 @@ pub mod prelude {
     pub use crate::{
         configuration::Configuration,
         entities::{
-            CityFilter, DailyHistories, DateRange, DateRanges, History, HistoryDates, HistorySummaries, HistorySummary,
-            Location, LocationFilter, State,
+            City, CityFilter, DailyHistories, DateRange, DateRanges, History, HistoryDates, HistorySummaries,
+            HistorySummary, Location, LocationFilter, State,
         },
         histories_future::HistoriesFuture,
         weather_data::{create_weather_data, WeatherData},
@@ -93,8 +93,9 @@ pub mod prelude {
 pub mod admin_prelude {
     pub use crate::admin::{
         entities::{
-            Components, DbDetails, DbHistoryProblems, DbLocationProblems, DbProblems, FilesysDetails,
-            FilesysDocumentProblem, FilesysLocationProblem, FilesysProblems, LocationDetails, UsCityDetails,
+            CitiesDetails, Components, CountryDetails, DbDetails, DbHistoryProblems, DbLocationProblems, DbProblems,
+            FilesysDetails, FilesysDocumentProblem, FilesysLocationProblem, FilesysProblems, LocationDetails,
+            RegionDetails, UsCityDetails,
         },
         WeatherAdmin,
     };

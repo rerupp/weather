@@ -1,11 +1,10 @@
 //! The Sqlite database implementation for weather data.
 
 pub mod admin;
+mod cities;
 mod history;
 mod locations;
 mod metadata;
-// you need to expose this for filesys right now.
-pub mod us_cities;
 
 use crate::{
     backend::{
@@ -13,9 +12,7 @@ use crate::{
         Backend,
     },
     configuration::Configuration,
-    entities::{
-        CityFilter, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter, State,
-    },
+    entities::{City, DailyHistories, DateRange, HistoryDates, HistorySummaries, Location, LocationFilter},
 };
 use std::sync::Arc;
 
@@ -25,18 +22,15 @@ type SqlResult<T> = Result<T, rusqlite::Error>;
 /// The name of the database
 const DB_FILENAME: &str = "weather_data.db";
 
-/// Create a database locations specific error message.
-macro_rules! error {
-    ($($arg:tt)*) => {
-        crate::Error::from(format!("SQLite {}", format!($($arg)*)))
-    }
-}
-use error;
-
 /// Create an error from the locations specific error message.
+///
+/// # Params
+///
+/// * `args` are passed to `format!` to create the error message.
+///
 macro_rules! err {
-    ($($arg:tt)*) => {
-        Err($crate::backend::db::sqlite::error!($($arg)*))
+    ($($args:tt)*) => {
+        Err(crate::Error(format!("SQLite {}", format!($($args)*))))
     };
 }
 use err;
@@ -47,9 +41,7 @@ use err;
 ///
 /// * `optional_file` is the database file, if `None` an in-memory database will be used.
 ///
-pub(in crate::backend::db::sqlite) fn db_connection(
-    optional_file: Option<&WeatherFile>,
-) -> crate::Result<rusqlite::Connection> {
+fn db_connection(optional_file: Option<&WeatherFile>) -> crate::Result<rusqlite::Connection> {
     match optional_file {
         Some(file) => match rusqlite::Connection::open(file.to_string()) {
             Ok(conn) => Ok(conn),
@@ -63,6 +55,11 @@ pub(in crate::backend::db::sqlite) fn db_connection(
 }
 
 /// A helper to create a database connection.
+///
+/// # Params
+///
+/// * `weather_dir` is the weather data directory.
+///
 macro_rules! db_conn {
     ($weather_dir:expr) => {
         $crate::backend::db::sqlite::db_connection(Some(&$weather_dir.file(crate::backend::db::sqlite::DB_FILENAME)))
@@ -71,6 +68,13 @@ macro_rules! db_conn {
 use db_conn;
 
 /// A helper to execute SQL.
+///
+/// # Params
+///
+/// * `stmt` is the SQL statement that will be run.
+/// * `params` holds the SQL statement parameters.
+/// * `args` are passed to `format!` if there is an error.
+///
 macro_rules! execute_sql {
     ($stmt:expr, $params:expr, $($arg:tt)*) => {
         match $stmt.execute($params) {
@@ -82,6 +86,13 @@ macro_rules! execute_sql {
 use execute_sql;
 
 /// A helper to prepare an SQL statement.
+///
+/// # Params
+///
+/// * `conn` is the database connection
+/// * `sql` is the sql
+/// * `args` are passed to `format!` if there is an error.
+///
 macro_rules! prepare_sql {
     ($conn:expr, $sql:expr, $($args:tt)*) => {
         match $conn.prepare($sql) {
@@ -93,6 +104,13 @@ macro_rules! prepare_sql {
 use prepare_sql;
 
 /// A helper to prepare a cached SQL statement.
+///
+/// # Params
+///
+/// * `conn` is the database connection
+/// * `sql` is the sql
+/// * `args` are passed to `format!` if there is an error.
+///
 macro_rules! prepare_cached_sql {
     ($conn:expr, $sql:expr, $($args:tt)*) => {
         match $conn.prepare_cached($sql) {
@@ -104,6 +122,13 @@ macro_rules! prepare_cached_sql {
 use prepare_cached_sql;
 
 /// A helper to query rows from the database.
+///
+/// #Params
+///
+/// * `stmt` is the statement.
+/// * `params` are the SQL parameters.
+/// * `args` are used the `format!` to create an error description.
+///
 macro_rules! query_rows {
     ($stmt:expr, $params:expr, $($args:tt)*) => {
         match $stmt.query($params) {
@@ -115,6 +140,12 @@ macro_rules! query_rows {
 use query_rows;
 
 /// A helper that creates a transaction.
+///
+/// # Params
+///
+/// * `conn` is the database connection
+/// * `args` are passed to `format!` if there is an error.
+///
 macro_rules! create_tx {
     ($conn:expr, $($args:tt)*) => {
         match $conn.transaction() {
@@ -126,6 +157,12 @@ macro_rules! create_tx {
 use create_tx;
 
 /// A helper that commits a transaction.
+///
+/// # Params
+///
+/// * `tx` is the database transaction.
+/// * `args` are passed to `format!` if there is an error.
+///
 macro_rules! commit_tx {
     ($tx:expr, $($arg:tt)*) => {
         match $tx.commit() {
@@ -162,7 +199,6 @@ impl SqliteBackend {
     /// * `filter` is used to get the location.
     ///
     fn get_location(&self, conn: &rusqlite::Connection, filter: LocationFilter) -> crate::Result<Option<Location>> {
-        // let mut locations = self.get_locations(Some(vec![filter]))?;
         let mut locations = locations::get(conn, Some(vec![filter]))?;
         match locations.len() {
             0 => Ok(None),
@@ -215,7 +251,7 @@ impl Backend for SqliteBackend {
     ///
     /// # Arguments
     ///
-    /// - `filters` identifies the locations.
+    /// - `filters` identifies the optional locations of interest.
     ///
     fn get_history_summaries(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistorySummaries>> {
         let mut conn = db_conn!(&self.weather_dir)?;
@@ -226,7 +262,7 @@ impl Backend for SqliteBackend {
     ///
     /// # Arguments
     ///
-    /// - `filters` identifies the locations of interest.
+    /// - `filters` identifies the optional locations of interest.
     ///
     fn get_locations(&self, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<Location>> {
         let conn = db_conn!(&self.weather_dir)?;
@@ -248,7 +284,7 @@ impl Backend for SqliteBackend {
     ///
     /// # Arguments
     ///
-    /// * `filter` is used to get the location.
+    /// * `filter` is used to identify a location.
     ///
     fn delete_location(&self, filter: LocationFilter) -> crate::Result<()> {
         let mut conn = db_conn!(&self.weather_dir)?;
@@ -276,27 +312,26 @@ impl Backend for SqliteBackend {
         locations::update(&mut conn, location, &self.weather_dir)
     }
 
-    /// Search for a location.
+    /// Search for cities.
     ///
     /// # Arguments
     ///
-    /// * `filter` identifies which cities are being searched for (default is all).
+    /// * `filters` is used to identify the cities.
+    /// * `limit` restricts the number of cities returned.
     ///
-    fn search_locations(&self, filter: CityFilter) -> crate::Result<Vec<Location>> {
-        if !us_cities::exists(&self.weather_dir) {
-            err!("{} has not been initialized.", DB_FILENAME)?;
+    fn get_cities(&self, filters: Option<Vec<LocationFilter>>, limit: usize) -> crate::Result<Vec<City>> {
+        if !cities::is_initialized(&self.weather_dir) {
+            err!("The Cities database has not been initialized.")?;
         }
-        us_cities::get_cities(&us_cities::open(&self.weather_dir)?, filter)
-    }
-
-    /// Get a list of the US City states.
-    ///
-    fn get_states(&self) -> crate::Result<Vec<State>> {
-        us_cities::get_states(&us_cities::open(&self.weather_dir)?)
+        cities::get(&self.weather_dir, filters, limit)
     }
 }
 
 /// Tests if the database file exists or not.
+///
+/// # Arguments
+///
+/// * `weather_dir` is the weather history data directory.
 ///
 pub fn db_exists(weather_dir: &WeatherDir) -> bool {
     weather_dir.file(DB_FILENAME).exists()
@@ -308,7 +343,7 @@ pub fn db_exists(weather_dir: &WeatherDir) -> bool {
 ///
 /// * `conn` is the database connection that will be used.
 /// * `table` is the database table name.
-// todo: should this be somewhere else?
+///
 pub fn estimate_size(conn: &rusqlite::Connection, table: &str) -> crate::Result<usize> {
     let mut size_estimate = 0;
     let pragma_result: SqlResult<()> = conn.pragma(None, "table_info", table, |row| {
@@ -337,4 +372,74 @@ pub fn estimate_size(conn: &rusqlite::Connection, table: &str) -> crate::Result<
         err!("failed to estimate the size of {table}: {:?}", error)?;
     }
     Ok(size_estimate)
+}
+
+pub fn sql_match_condition(column: impl ToString, filter: impl ToString) -> crate::Result<String> {
+    let mut filter = filter.to_string();
+    let column = column.to_string();
+
+    // if there are illegal characters discard the filter
+    if filter.contains(|c| r"[]^!\".contains(c)) {
+        err!("The column '{column}' match value '{filter}' contains illegal characters.")?;
+    }
+
+    // check if there are sql wildcards
+    let is_sql_glob_wildcard = filter.contains(|c| c == '%');
+    if is_sql_glob_wildcard {
+        filter = filter.replace("%", r"\%");
+    }
+    let is_sql_char_wildcard = filter.contains(|c| c == '_');
+    if is_sql_char_wildcard {
+        filter = filter.replace("_", r"\_");
+    }
+
+    // fix up any of the filter wildcards
+    let is_glob_wildcard = filter.contains(|c| c == '*');
+    if is_glob_wildcard {
+        filter = filter.replace("*", "%");
+    }
+    let is_char_wildcard = filter.contains(|c| c == '.');
+    if is_char_wildcard {
+        filter = filter.replace(".", "_");
+    }
+
+    let sql = match is_glob_wildcard || is_char_wildcard {
+        false => match is_sql_glob_wildcard || is_sql_char_wildcard {
+            true => format!("{column} = '{filter}' ESCAPE '\\'"),
+            false => format!("{column} = '{filter}'"),
+        },
+        true => match is_sql_glob_wildcard || is_sql_char_wildcard {
+            true => format!("{column} LIKE '{filter}' ESCAPE '\\'"),
+            false => format!("{column} LIKE '{filter}'"),
+        },
+    };
+    Ok(sql)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sql_match_condition() {
+        // the illegal characters
+        assert!(super::sql_match_condition("column", r"[").is_err());
+        assert!(super::sql_match_condition("column", r"]").is_err());
+        assert!(super::sql_match_condition("column", r"^").is_err());
+        assert!(super::sql_match_condition("column", r"!").is_err());
+        assert!(super::sql_match_condition("column", r"\").is_err());
+
+        let testcase = |column: &str, value: &str| super::sql_match_condition(column, value).unwrap();
+
+        assert_eq!(testcase("column", ""), "column = ''");
+
+        assert_eq!(testcase("column", "foo"), "column = 'foo'");
+        assert_eq!(testcase("column", "*foo"), "column LIKE '%foo'");
+        assert_eq!(testcase("column", "foo*"), "column LIKE 'foo%'");
+        assert_eq!(testcase("column", "*foo*"), "column LIKE '%foo%'");
+        assert_eq!(testcase("column", ".foo"), "column LIKE '_foo'");
+        assert_eq!(testcase("column", "foo."), "column LIKE 'foo_'");
+        assert_eq!(testcase("column", ".foo."), "column LIKE '_foo_'");
+
+        assert_eq!(testcase("column", "foo_bar"), r"column = 'foo\_bar' ESCAPE '\'");
+        assert_eq!(testcase("column", "*foo_bar."), r"column LIKE '%foo\_bar_' ESCAPE '\'");
+    }
 }

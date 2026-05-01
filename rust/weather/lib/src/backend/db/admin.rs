@@ -2,7 +2,7 @@
 
 use super::sqlite;
 use crate::{
-    admin_prelude::{DbDetails, DbProblems, UsCityDetails},
+    admin_prelude::{CitiesDetails, DbDetails, DbProblems},
     backend::filesys::WeatherDir,
     prelude::LocationFilter,
 };
@@ -67,21 +67,21 @@ pub(crate) trait DbAdmin {
 
     /// Initialize the US cities database.
     ///
-    fn us_cities_init(&self) -> crate::Result<()>;
+    fn cities_init(&self) -> crate::Result<()>;
 
-    /// Delete the US Cities database.
+    /// Delete the Cities database.
     ///
-    fn us_cities_delete(&self) -> crate::Result<()>;
+    fn cities_delete(&self) -> crate::Result<()>;
 
-    /// Load the US cities database.
+    /// Load the Cities database.
     ///
     /// # Arguments
     ///
-    /// * `uscities_path` is the filename that contains the US cities metadata.
+    /// * `csv_database` is the filename with the country cities CSV database.
+    /// * `reload` will remove the country cities if one has been previously loaded.
     ///
-    fn us_cities_load(&self, uscities_path: &str) -> crate::Result<usize>;
+    fn cities_load(&self, uscities_path: &str, reload: bool) -> crate::Result<usize>;
 
-    /// Retrieve information about the US Cities database.
-    ///
-    fn us_cities_details(&self) -> crate::Result<UsCityDetails>;
+    /// Retrieve details about the Cities database.
+    fn cities_details(&self) -> crate::Result<Option<CitiesDetails>>;
 }

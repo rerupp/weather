@@ -11,17 +11,10 @@ use crate::{
 use rusqlite::{named_params, Connection, Row, Transaction};
 use sql_query_builder as sql;
 
-/// Create a database locations specific error message.
-macro_rules! error {
-    ($($arg:tt)*) => {
-        crate::Error::from(format!("DB Locations {}", format!($($arg)*)))
-    }
-}
-
 /// Create an error from the locations specific error message.
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(error!($($arg)*))
+        Err(crate::Error(format!("DB Locations {}", format!($($arg)*))))
     };
 }
 
@@ -53,21 +46,27 @@ pub fn add(conn: &mut Connection, location: Location, weather_dir: &WeatherDir) 
 ///
 pub fn add_db(tx: &Transaction, location: Location) -> crate::Result<()> {
     const SQL: &str = r#"
-        INSERT INTO locations (city, state, state_id, alias, latitude, longitude, tz)
-            VALUES (:city, :state, :state_id, :alias, :latitude, :longitude, :tz)
+        INSERT INTO locations (
+                country_name, country_code, region_name, region_code, city_name, alias, latitude, longitude, tz
+            )
+            VALUES (
+                :country_name, :country_code, :region_name, :region_code, :city_name, :alias, :latitude, :longitude, :tz
+            )
         "#;
     let mut stmt = prepare_sql!(tx, SQL, "failed to prepare insert SQL")?;
-    let alias = location.alias.clone();
+    let location_name = location.to_string();
     let params = named_params! {
-        ":city": location.city,
-        ":state": location.state,
-        ":state_id": location.state_id,
+        ":country_name": location.country_name,
+        ":country_code": location.country_code,
+        ":region_name": location.region_name,
+        ":region_code": location.region_code,
+        ":city_name": location.city_name,
         ":alias": location.alias,
         ":latitude": location.latitude,
         ":longitude": location.longitude,
         ":tz": location.tz,
     };
-    execute_sql!(stmt, params, "'{alias}' location was not added")?;
+    execute_sql!(stmt, params, "'{location_name}' location was not added")?;
     Ok(())
 }
 
@@ -93,14 +92,14 @@ pub fn update(conn: &mut Connection, location: Location, weather_dir: &WeatherDi
 ///
 pub fn update_db(tx: &Transaction, location: &Location) -> crate::Result<bool> {
     // get the db location
-    let mut locations = get(tx, Some(vec![LocationFilter::name(&location.alias)]))?;
+    let mut locations = get(tx, Some(vec![LocationFilter::alias(&location.alias)]))?;
     let db_location = match locations.len() {
         1 => locations.pop().unwrap(),
         len => {
             if len == 0 {
-                log::error!("Did not find {} ({}) in the database.", location.name, location.alias);
+                log::error!("Did not find {location} in the database.");
             } else {
-                log::error!("Found {} locations for {} ({}) in the database.", len, location.name, location.alias);
+                log::error!("Found {len} locations for {location} in the database.");
             }
             return Ok(false);
         }
@@ -116,9 +115,11 @@ pub fn update_db(tx: &Transaction, location: &Location) -> crate::Result<bool> {
             }
         }};
     }
-    update_if_changed!("city", city);
-    update_if_changed!("state", state);
-    update_if_changed!("state_id", state_id);
+    update_if_changed!("country_name", country_name);
+    update_if_changed!("country_code", country_code);
+    update_if_changed!("region_name", region_name);
+    update_if_changed!("region_code", region_code);
+    update_if_changed!("city_name", city_name);
     update_if_changed!("latitude", latitude);
     update_if_changed!("longitude", longitude);
     update_if_changed!("tz", tz);
@@ -186,18 +187,18 @@ pub fn get(conn: &Connection, filters: Option<Vec<LocationFilter>>) -> crate::Re
             Ok(None) => break,
             Err(error) => err!("failed to execute query: {:?}", error)?,
         };
-        fn next_location(row_: &Row) -> SqlResult<Location> {
-            let city: String = row_.get("city")?;
-            let state_id: String = row_.get("state_id")?;
+        #[inline]
+        fn next_location(row: &Row) -> SqlResult<Location> {
             Ok(Location {
-                name: format!("{}, {}", city, state_id),
-                city,
-                state_id,
-                state: row_.get("state")?,
-                alias: row_.get("alias")?,
-                longitude: row_.get("longitude")?,
-                latitude: row_.get("latitude")?,
-                tz: row_.get("tz")?,
+                country_name: row.get("country_name")?,
+                country_code: row.get("country_code")?,
+                region_name: row.get("region_name")?,
+                region_code: row.get("region_code")?,
+                city_name: row.get("city_name")?,
+                alias: row.get("alias")?,
+                longitude: row.get("longitude")?,
+                latitude: row.get("latitude")?,
+                tz: row.get("tz")?,
             })
         }
         match next_location(row) {
@@ -209,56 +210,65 @@ pub fn get(conn: &Connection, filters: Option<Vec<LocationFilter>>) -> crate::Re
 }
 
 fn get_query(optional_filters: Option<Vec<LocationFilter>>) -> String {
-    #[inline]
-    fn like_city(value: &str) -> String {
-        format!("city LIKE '{}'", value.replace("*", "%"))
-    }
-    #[inline]
-    fn like_state(state: &str) -> String {
-        let state = state.replace("*", "%");
-        format!("(state LIKE '{state}' OR state_id LIKE '{state}')")
-    }
-    #[inline]
-    fn like_name(name: &str) -> String {
-        let name = name.replace("*", "%");
-        format!("(name LIKE '{name}' OR alias LIKE '{name}')")
-    }
-    let mut query =
-        sql::Select::new().from("locations").select("city, state, state_id, alias, latitude, longitude, tz");
-    if let Some(filters) = optional_filters {
-        for filter in filters {
-            match (&filter.city, &filter.state, &filter.name) {
-                (Some(city), None, None) => {
-                    query = query.where_or(&like_city(city));
+    fn filter_to_sql(filter: &str) -> Option<String> {
+        match filter.contains(|c| r"[]^!\".contains(c)) {
+            // if there are illegal characters discard the filter
+            true => None,
+            false => {
+                // check if there are wildcards
+                match filter.contains(|c| c == '*' || c == '.') {
+                    false => Some(format!("= '{filter}'")),
+                    true => {
+                        // escape any SQL wildcards
+                        let has_sql_wildcards = filter.contains(|c| c == '%' || c == '_');
+                        let mut filter = match has_sql_wildcards {
+                            true => filter.replace("%", r"\%").replace("_", r"\_"),
+                            false => filter.into()
+                        };
+                        // convert the globing to SQL
+                        filter = filter.replace("*", "%").replace(".", "_");
+                        match has_sql_wildcards {
+                            true => Some(format!("LIKE '{filter}' ESCAPE '\\'")),
+                            false => Some(format!("LIKE '{filter}'")),
+                        }
+                    }
                 }
-                (None, Some(state), None) => {
-                    query = query.where_or(&like_state(state));
-                }
-                (None, None, Some(name)) => {
-                    query = query.where_or(&like_name(name));
-                }
-                (Some(city), Some(state), None) => {
-                    query = query.where_or(&format!("({} AND {})", like_city(city), like_state(state)));
-                }
-                (Some(city), None, Some(name)) => {
-                    query = query.where_or(&format!("({} AND {})", like_city(city), like_name(name)));
-                }
-                (None, Some(state), Some(name)) => {
-                    query = query.where_or(&format!("({} AND {})", like_state(state), like_name(name)));
-                }
-                (Some(city), Some(state), Some(name)) => {
-                    query = query.where_or(&format!(
-                        "({} AND {} AND {})",
-                        like_city(city),
-                        like_state(state),
-                        like_name(name)
-                    ));
-                }
-                _ => (),
             }
         }
     }
-    query.order_by("city, state_id ASC").to_string()
+    let mut query = sql::Select::new()
+        .from("locations")
+        .select("country_name, country_code, region_name, region_code, city_name, alias, latitude, longitude, tz");
+    if let Some(filters) = optional_filters {
+        for filter in filters {
+            let mut filter_sql = vec![];
+            if let Some(alias_filter) = &filter.alias {
+                if let Some(sql) = filter_to_sql(alias_filter) {
+                    filter_sql.push(format!("alias {sql}"));
+                }
+            }
+            if let Some(city_filter) = &filter.city {
+                if let Some(sql) = filter_to_sql(city_filter) {
+                    filter_sql.push(format!("city_name {sql}"));
+                }
+            }
+            if let Some(region_filter) = &filter.region {
+                if let Some(sql) = filter_to_sql(region_filter) {
+                    filter_sql.push(format!("(region_name {sql} OR region_code {sql})"));
+                }
+            }
+            if let Some(country_filter) = &filter.country {
+                if let Some(sql) = filter_to_sql(country_filter) {
+                    filter_sql.push(format!("(country_name {sql} OR country_code {sql})"));
+                }
+            }
+            if filter_sql.len() > 0 {
+                // query = query.where_or(filter_sql.join(" AND ").as_str());
+                query = query.where_or(format!("({})", filter_sql.join(" AND ")).as_str());
+            }
+        }
+    }
+    query.order_by("city_name, region_code, country_code, alias ASC").to_string()
 }
 
 /// Get the location id and alias.
@@ -320,18 +330,21 @@ pub fn location_id(conn: &Connection, alias: &str) -> crate::Result<i64> {
 /// * `weather_dir` is the weather data directory.
 ///
 pub fn load(conn: &mut Connection, weather_dir: &WeatherDir) -> crate::Result<()> {
-    let mut insert =
-        sql::Insert::new().insert_into("locations (city, state, state_id, alias, latitude, longitude, tz)");
+    let mut insert = sql::Insert::new().insert_into(
+        "locations (country_name, country_code, region_name, region_code, city_name, alias, latitude, longitude, tz)",
+    );
     let locations = fs_lib::get_locations(weather_dir, None)?;
     if locations.is_empty() {
         return Ok(());
     }
     for location in locations {
         insert = insert.values(&format!(
-            "('{}', '{}', '{}', '{}', '{}', '{}', '{}')",
-            location.city,
-            location.state,
-            location.state_id,
+            "('{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}')",
+            location.country_name,
+            location.country_code,
+            location.region_name,
+            location.region_code,
+            location.city_name,
             location.alias,
             location.latitude,
             location.longitude,
@@ -398,9 +411,12 @@ mod tests {
 
     macro_rules! assert_locations {
         ($lhs:expr, $rhs:expr) => {
-            assert_eq!($lhs.city, $rhs.city);
-            assert_eq!($lhs.state, $rhs.state);
-            assert_eq!($lhs.state_id, $rhs.state_id);
+            assert_eq!($lhs.country_name, $rhs.country_name);
+            assert_eq!($lhs.country_code, $rhs.country_code);
+            assert_eq!($lhs.region_name, $rhs.region_name);
+            assert_eq!($lhs.region_code, $rhs.region_code);
+            assert_eq!($lhs.city_name, $rhs.city_name);
+            assert_eq!($lhs.alias, $rhs.alias);
             assert_eq!($lhs.latitude, $rhs.latitude);
             assert_eq!($lhs.longitude, $rhs.longitude);
             assert_eq!($lhs.tz, $rhs.tz);
@@ -421,6 +437,48 @@ mod tests {
     }
 
     #[test]
+    fn query() {
+        let fixture = init_fixture(false);
+        let weather_dir = WeatherDir::from(&fixture);
+        let mut conn = db_conn!(weather_dir).unwrap();
+
+        macro_rules! location {
+            ($country: expr, $region: expr, $city: expr, $alias: expr) => {
+                Location {
+                    country_name: "Country Name".into(),
+                    country_code: $country.into(),
+                    region_name: "Region Name".into(),
+                    region_code: $region.into(),
+                    city_name: $city.into(),
+                    alias: $alias.into(),
+                    latitude: "1".into(),
+                    longitude: "1".into(),
+                    tz: "utc".into(),
+                }
+            };
+        }
+        add(&mut conn, location!("US", "AZ", "US City", "us_city"), &weather_dir).unwrap();
+        add(&mut conn, location!("US", "OR", "US City", "us_city_copy"), &weather_dir).unwrap();
+        add(&mut conn, location!("CA", "BC", "CA City", "ca_city"), &weather_dir).unwrap();
+        add(&mut conn, location!("CA", "ON", "CA City", "ca_city_copy"), &weather_dir).unwrap();
+        let locations = get(&conn, None).unwrap();
+        assert_eq!(locations.len(), 4);
+        let locations = get(&conn, Some(vec![LocationFilter::alias("*s_c*")])).unwrap();
+        assert_eq!(locations.len(), 2);
+        let locations = get(&conn, Some(vec![LocationFilter::city("* City")])).unwrap();
+        assert_eq!(locations.len(), 4);
+        let locations = get(&conn, Some(vec![LocationFilter::city("* city").with_country("us")])).unwrap();
+        assert_eq!(locations.len(), 2);
+        let locations = get(&conn, Some(vec![
+            LocationFilter::alias("us_city").with_region("az").with_country("us"),
+            LocationFilter::city("ca city").with_region("bc").with_country("ca"),
+        ])).unwrap();
+        assert_eq!(locations.len(), 2);
+        let locations = get(&conn, Some(vec![LocationFilter::country("us"), LocationFilter::country("CA")])).unwrap();
+        assert_eq!(locations.len(), 4);
+    }
+
+    #[test]
     fn add_delete() {
         let fixture = init_fixture(false);
         let weather_dir = WeatherDir::from(&fixture);
@@ -430,13 +488,14 @@ mod tests {
         assert!(fs_lib::get_locations(&weather_dir, None).unwrap().is_empty());
         assert!(get(&conn, None).unwrap().is_empty());
 
-        let alias = "foothills";
         // add a location and verify the results
+        let alias = "foothills";
         let added_location = Location {
-            city: "Fortuna Foothills".to_string(),
-            state_id: "AZ".to_string(),
-            state: "Arizona".to_string(),
-            name: Default::default(),
+            country_name: "United States".to_string(),
+            country_code: "US".to_string(),
+            region_name: "Arizona".to_string(),
+            region_code: "AZ".to_string(),
+            city_name: "Fortuna Foothills".to_string(),
             alias: alias.to_string(),
             latitude: "32.6578355".to_string(),
             longitude: "-114.4118901".to_string(),
@@ -452,10 +511,11 @@ mod tests {
 
         // update the location and verify the results
         let updated_location = Location {
-            city: "Yuma".to_string(),
-            state_id: "".to_string(),
-            state: "".to_string(),
-            name: "".to_string(),
+            country_name: "".to_string(),
+            country_code: "".to_string(),
+            region_name: "".to_string(),
+            region_code: "".to_string(),
+            city_name: "Yuma".to_string(),
             alias: alias.to_string(),
             latitude: "".to_string(),
             longitude: "".to_string(),
@@ -467,9 +527,11 @@ mod tests {
         let updated_fs_locations = fs_lib::get_locations(&weather_dir, None).unwrap();
         assert_eq!(updated_fs_locations.len(), 1);
         let updated_fs_location = &updated_fs_locations[0];
-        assert_eq!(updated_fs_location.city, updated_location.city);
-        assert_eq!(updated_fs_location.state_id, added_location.state_id);
-        assert_eq!(updated_fs_location.state, added_location.state);
+        assert_eq!(updated_fs_location.city_name, updated_location.city_name);
+        assert_eq!(updated_fs_location.country_name, added_location.country_name);
+        assert_eq!(updated_fs_location.country_code, added_location.country_code);
+        assert_eq!(updated_fs_location.region_name, added_location.region_name);
+        assert_eq!(updated_fs_location.region_code, added_location.region_code);
         assert_eq!(updated_fs_location.latitude, added_location.latitude);
         assert_eq!(updated_fs_location.longitude, added_location.longitude);
         assert_eq!(updated_fs_location.tz, added_location.tz);
@@ -495,7 +557,7 @@ mod tests {
     fn add_update_delete_db() {
         let fixture = init_fixture(true);
         let south = "south";
-        let south_filter = || Some(vec![LocationFilter::name(south)]);
+        let south_filter = || Some(vec![LocationFilter::alias(south)]);
 
         // get south from the locations document
         let weather_dir = WeatherDir::from(&fixture);
@@ -510,7 +572,6 @@ mod tests {
         // get the location from the db and make sure it's what you expect
         let db_locations = get(&conn, south_filter()).unwrap();
         assert_eq!(db_locations.len(), 1);
-        // let db_location = &db_locations[0];
         assert_locations!(fs_location, db_locations[0]);
 
         // don't update a location with the same properties
@@ -519,10 +580,11 @@ mod tests {
 
         // make the changes
         let update = Location {
-            city: "city".to_string(),
-            state_id: "id".to_string(),
-            state: "state".to_string(),
-            name: Default::default(),
+            country_name: "Country".to_string(),
+            country_code: "CO".to_string(),
+            region_name: "Region".to_string(),
+            region_code: "RN".to_string(),
+            city_name: "city".to_string(),
             alias: south.to_string(),
             latitude: "12.345".to_string(),
             longitude: "54.321".to_string(),
@@ -538,10 +600,11 @@ mod tests {
 
         // check a partial update
         let partial = Location {
-            city: "Some City".to_string(),
-            state_id: "XX".to_string(),
-            state: "Xerces".to_string(),
-            name: Default::default(),
+            country_name: "Country Name".to_string(),
+            country_code: "CN".to_string(),
+            region_name: "Xerces".to_string(),
+            region_code: "XX".to_string(),
+            city_name: "Some City".to_string(),
             alias: south.to_string(),
             latitude: "".to_string(),
             longitude: "".to_string(),
@@ -553,9 +616,11 @@ mod tests {
         let partial_updates = get(&conn, south_filter()).unwrap();
         assert_eq!(partial_updates.len(), 1);
         let partial_update = &partial_updates[0];
-        assert_eq!(partial_update.city, partial.city);
-        assert_eq!(partial_update.state_id, partial.state_id);
-        assert_eq!(partial_update.state, partial.state);
+        assert_eq!(partial_update.country_name, partial.country_name);
+        assert_eq!(partial_update.country_code, partial.country_code);
+        assert_eq!(partial_update.region_name, partial.region_name);
+        assert_eq!(partial_update.region_code, partial.region_code);
+        assert_eq!(partial_update.city_name, partial.city_name);
         assert_eq!(partial_update.latitude, update.latitude);
         assert_eq!(partial_update.longitude, update.longitude);
         assert_eq!(partial_update.tz, update.tz);
@@ -583,13 +648,7 @@ mod tests {
         let fs_locations = fs_lib::get_locations(&weather_dir, None).unwrap();
         assert_eq!(db_locations.len(), fs_locations.len());
         for (lhs, rhs) in db_locations.iter().zip(fs_locations.iter()) {
-            assert_eq!(lhs.city, rhs.city);
-            assert_eq!(lhs.state, rhs.state);
-            assert_eq!(lhs.state_id, rhs.state_id);
-            assert_eq!(lhs.alias, rhs.alias);
-            assert_eq!(lhs.latitude, rhs.latitude);
-            assert_eq!(lhs.longitude, rhs.longitude);
-            assert_eq!(lhs.tz, rhs.tz);
+            assert_locations!(lhs, rhs);
         }
 
         // verify the helpers that get location row ids

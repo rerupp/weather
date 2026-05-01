@@ -1,23 +1,31 @@
 //! The list location command implementation.
 //!
-use super::trim_row_end;
-use crate::cli::{
-    self, err, get_writer, reports::list_locations as reports, LocationFilterArgs, ReportArgs,
-};
-use clap::{ArgMatches, Command};
+use super::{location_filters, trim_row_end};
+use crate::cli::{self, err, get_writer, reports::list_locations as reports, ReportArgs};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use weather_lib::prelude::WeatherData;
 
 /// The list locations command name.
-pub const COMMAND_NAME: &'static str = "ll";
+pub const COMMAND_NAME: &str = "ll";
+
+/// The show all properties argument id.
+const ALL_PROPERTIES: &str = "ALL";
 
 /// Create the list locations command.
 ///
 pub fn command() -> Command {
     Command::new(COMMAND_NAME)
         .about("List weather history locations.")
+        .arg(
+            Arg::new(ALL_PROPERTIES)
+                .short('a')
+                .long("all")
+                .action(ArgAction::SetTrue)
+                .help("Show all of the location properties."),
+        )
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
-        .args(LocationFilterArgs::get())
+        .arg(location_filters::arg())
 }
 
 /// Executes the list locations command.
@@ -28,7 +36,7 @@ pub fn command() -> Command {
 /// * `args` contains the list locations command arguments.
 ///
 pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
-    let filters = LocationFilterArgs::new(&args).as_location_filters();
+    let filters = location_filters::parse_args(&args)?;
     let locations = weather_data.get_locations(filters)?;
     match locations.is_empty() {
         true => Ok(()),
@@ -44,8 +52,11 @@ pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> 
                 };
                 report.generate(locations)
             } else {
-                reports::text::Report::default()
-                    .with_title_separator()
+                let mut report = reports::text::Report::default().with_title_separator();
+                if *args.get_one::<bool>(ALL_PROPERTIES).unwrap() {
+                    report = report.with_all_properties();
+                }
+                report
                     .generate(&locations)
                     .into_iter()
                     .map(|row| trim_row_end!(row.to_string()))

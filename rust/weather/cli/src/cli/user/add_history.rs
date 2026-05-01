@@ -14,7 +14,7 @@ use weather_lib::prelude::{DailyHistories, HistoriesFuture, LocationFilter, Weat
 pub const COMMAND_NAME: &'static str = "ah";
 
 /// The location argument id.
-const LOCATION: &'static str = "LOCATION";
+const ALIAS: &'static str = "ALIAS";
 
 /// The history from date argument id.
 const START: &'static str = "START";
@@ -33,13 +33,14 @@ pub fn command() -> Command {
 The START and END dates can be specified using any of the following patterns.
 
   YYYY, MMM-YYYY, MM-YYYY, MM/YYYY, YYYY-MM, YYYY/MM
-  MM-DD-YYYY, MM/DD/YYYY, YYYY-MM-DD or YYYY/MM/DD",
+  MM-DD-YYYY, MM/DD/YYYY, YYYY-MM-DD, YYYY/MM/DD
+  MMM-DD-YYYY, MMM/DD/YYYY",
         )
         .arg(
-            Arg::new(LOCATION)
+            Arg::new(ALIAS)
                 .action(ArgAction::Set)
                 .required(true)
-                .value_name("LOCATION")
+                .value_name("ALIAS")
                 .value_parser(validate_location)
                 .help("The location weather history will be added to."),
         )
@@ -68,8 +69,8 @@ The START and END dates can be specified using any of the following patterns.
 /// * `args` contains the report history command arguments.
 ///
 pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
-    let location = args.get_one::<String>(LOCATION).unwrap();
-    match weather_data.get_locations(Some(vec![LocationFilter::name(location)])) {
+    let location = args.get_one::<String>(ALIAS).unwrap();
+    match weather_data.get_locations(Some(vec![LocationFilter::alias(location)])) {
         Err(error) => cli::err!("Error getting location '{location}' properties: {error:?}."),
         Ok(mut locations) => {
             let location = match locations.len() {
@@ -80,10 +81,10 @@ pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> 
             let start_arg = args.get_one::<String>(START).unwrap();
             let end_arg = args.get_one::<String>(END).map_or(None, |end| Some(end.as_str()));
             let date_range = date_arg::try_parse_daterange(start_arg, end_arg)?;
-            let future = weather_data.fetch_daily_histories(LocationFilter::name(&location.alias), date_range)?;
+            let future = weather_data.fetch_daily_histories(LocationFilter::alias(&location.alias), date_range)?;
             let daily_histories = get_histories(future)?;
             if daily_histories.is_none() {
-                cli::err!("No daily histories found for {}.", location.name)?;
+                cli::err!("No daily histories found for {location}.")?;
             }
             let histories_added = weather_data.add_histories(daily_histories.unwrap())?;
             println!("\n{} histories added", histories_added);

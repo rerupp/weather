@@ -25,13 +25,13 @@ class HistoryReport(WeatherView):
         # get the report selection
         stopwatch = Stopwatch()
         # make sure there are histories to report
-        filters = PyLocationFilters([PyLocationFilter(name=self._location_alias)])
+        filters = PyLocationFilters([PyLocationFilter(city=self._location_alias)])
         location_history_dates = self._weather_data.backend.get_history_dates(filters)[0]
         history_dates_t = str(stopwatch)
         self._is_cancelled = True
         if not location_history_dates.history_dates:
             messagebox.showinfo(title='Report History',
-                                message=f'{location_history_dates.location.name} does not have weather data history.')
+                                message=f'{location_history_dates.location} does not have weather data history.')
             return
         # use the latest history dates as a default
         if not date_range:
@@ -42,7 +42,7 @@ class HistoryReport(WeatherView):
             self._sheet = None
         else:
             stopwatch.restart()
-            filters = PyLocationFilter(name=self._location_alias)
+            filters = PyLocationFilter(city=self._location_alias)
             daily_histories = self._weather_data.backend.get_daily_histories(filters, report_selection.date_range)
             headings = _create_headings(report_selection)
             contents = _create_contents(daily_histories, report_selection)

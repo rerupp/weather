@@ -1,7 +1,7 @@
 //! The weather data administration API and data beans.
 
 use crate::{
-    admin_prelude::{Components, UsCityDetails},
+    admin_prelude::{CitiesDetails, Components},
     backend::{
         self,
         admin::{DbAdmin, FsAdmin},
@@ -11,13 +11,28 @@ use crate::{
 };
 use std::rc::Rc;
 
+/// Create an error from the locations specific error message.
+///
+/// # Params
+///
+/// * `args` will be passed to `format!` to create the error message.
+///
 macro_rules! err {
-    ($($arg:tt)*) => {
-        Err(crate::Error(format!("WeatherAdmin {}.", format!($($arg)*))))
+    ($($args:tt)*) => {
+        Err(crate::Error(format!("WeatherAdmin {}.", format!($($args)*))))
+    };
+}
+
+/// This is boilerplate code used when the Cities db is not being used.
+///
+macro_rules! cities_not_available {
+    () => {
+        log::info!("Cities is only available when a db is used.")
     };
 }
 
 /// The weather data administration `API`.
+///
 pub struct WeatherAdmin {
     /// The database administration commands.
     db_admin: Option<Box<dyn DbAdmin>>,
@@ -111,16 +126,12 @@ impl WeatherAdmin {
     ///
     pub fn copy_location(&self, source_alias: &str, destination: Location) -> crate::Result<()> {
         crate::log_elapsed_time!("WeatherAdmin copy location:");
-        let filter = |name: &str| LocationFilter::name(name);
-        // make sure the source exists
-        let location = match self.weather_data.backend.get_locations(Some(vec![filter(source_alias)])) {
-            Err(error) => err!("{error}")?,
-            Ok(mut locations) => match locations.len() {
-                0 => err!("the source location ({source_alias}) was not found.")?,
-                1 => Ok(locations.remove(0)),
-                _ => err!("multiple locations were found for '{source_alias}'"),
-            },
-        }?;
+        let location_opt = self.weather_data.get_location(LocationFilter::alias(source_alias))?;
+        if location_opt.is_none() {
+            log::warn!("WeatherAdmin copy: the source location does not exist.");
+            return Ok(());
+        }
+        let location = location_opt.unwrap();
 
         // create the destination location
         let destination_alias = destination.alias.clone();
@@ -131,23 +142,36 @@ impl WeatherAdmin {
         // copy the source archive and make sure to use the location alias, the source alias might have wildcards
         if let Err(copy_error) = self.fs_admin.copy_archive(&location.alias, &destination_alias) {
             // clean up what has been done
-            if let Err(error) = self.weather_data.backend.delete_location(filter(&destination_alias)) {
+            let destination_filter = LocationFilter::alias(&destination_alias);
+            if let Err(error) = self.weather_data.backend.delete_location(destination_filter) {
                 log::error!("failed to cleanup the destination location '{destination_alias}': {error}.")
             }
             err!("failed to copy the source archive: {copy_error}")?;
         }
 
+        // add the new locations weather history if using a database
         if let Some(db_admin) = &self.db_admin {
-            let destination_filter = LocationFilter::name(&destination_alias);
+            let destination_filter = LocationFilter::alias(&destination_alias);
             if let Err(reload_error) = db_admin.history_reload(vec![destination_filter]) {
                 // don't fall over if the archive cannot be deleted
-                if let Err(error) = self.weather_data.backend.delete_location(filter(&destination_alias)) {
+                let destination_filter = LocationFilter::alias(&destination_alias);
+                if let Err(error) = self.weather_data.backend.delete_location(destination_filter) {
                     log::error!("failed to cleanup the destination location '{destination_alias}': {error}.")
                 }
                 err!("failed to load the location histories: {reload_error}")?;
             }
         }
         Ok(())
+    }
+
+    /// Compress a locations weather history archive and return the space that was recovered.
+    ///
+    /// # Arguments
+    ///
+    /// * `location` is used to select the weather history archive.
+    ///
+    pub fn compress_archive(&self, location: &Location) -> crate::Result<u64> {
+        self.fs_admin.compress_archive(&location.alias)
     }
 
     /// Provides information about the weather data archives and database.
@@ -177,44 +201,59 @@ impl WeatherAdmin {
         Ok(count)
     }
 
-    /// Initialize the US Cities database.
+    /// Initialize the Cities database.
     ///
-    pub fn uscities_init(&self) -> crate::Result<()> {
-        crate::log_elapsed_time!("uscities_init():");
-        if let Some(db_admin) = &self.db_admin {
-            db_admin.us_cities_init()?;
-        }
-        Ok(())
-    }
-
-    /// Load the US Cities database.
-    ///
-    pub fn uscities_load(&self) -> crate::Result<()> {
-        let uscities_filename = self.configuration.us_cities.filename.as_str();
-        crate::log_elapsed_time!(&format!("uscities_load({uscities_filename}):"));
-        if let Some(db_admin) = &self.db_admin {
-            db_admin.us_cities_load(uscities_filename)?;
-        }
-        Ok(())
-    }
-
-    /// Delete the US Cities database.
-    ///
-    pub fn uscities_delete(&self) -> crate::Result<()> {
-        crate::log_elapsed_time!("uscities_delete():");
-        if let Some(db_admin) = &self.db_admin {
-            db_admin.us_cities_delete()?;
-        }
-        Ok(())
-    }
-
-    /// Show information about the US Cities database.
-    ///
-    pub fn uscities_info(&self) -> crate::Result<Option<UsCityDetails>> {
-        crate::log_elapsed_time!("uscities_info():");
+    pub fn cities_init(&self) -> crate::Result<()> {
         match &self.db_admin {
-            None => Ok(None),
-            Some(db_admin) => Ok(Some(db_admin.us_cities_details()?)),
+            None => cities_not_available!(),
+            Some(db_admin) => {
+                crate::log_elapsed_time!("cities_init():");
+                db_admin.cities_init()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Load a Simple Maps country CSV database into the Cities database.
+    ///
+    /// # Arguments
+    ///
+    /// * `csv_database` is the path to the CSV database file.
+    /// * `reload` will remove existing country data before loading what is mined from the file.
+    ///
+    pub fn cities_load(&self, csv_database: String, reload: bool) -> crate::Result<()> {
+        match &self.db_admin {
+            None => cities_not_available!(),
+            Some(db_admin) => {
+                crate::log_elapsed_time!(&format!("uscities_load({csv_database}):"));
+                db_admin.cities_load(&csv_database, reload)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete the Cities database.
+    ///
+    pub fn cities_delete(&self) -> crate::Result<()> {
+        match &self.db_admin {
+            None => cities_not_available!(),
+            Some(db_admin) => {
+                crate::log_elapsed_time!("cities_delete():");
+                db_admin.cities_delete()?
+            }
+        }
+        Ok(())
+    }
+
+    /// Show information about the Cities database.
+    ///
+    pub fn cities_details(&self) -> crate::Result<Option<CitiesDetails>> {
+        match &self.db_admin {
+            Some(db_admin) => db_admin.cities_details(),
+            None => {
+                cities_not_available!();
+                Ok(None)
+            }
         }
     }
 }
@@ -222,11 +261,11 @@ impl WeatherAdmin {
 pub mod entities {
     //! Entities specific to the administration API.
     //!
-
     use super::Location;
     use crate::prelude::HistorySummaries;
 
     /// The administration backend component information.
+    ///
     #[derive(Debug)]
     pub struct Components {
         /// The database information.
@@ -236,6 +275,7 @@ pub mod entities {
     }
 
     /// The database information.
+    ///
     #[derive(Debug)]
     pub struct DbDetails {
         /// The size of the database.
@@ -244,10 +284,15 @@ pub mod entities {
         pub location_details: Vec<LocationDetails>,
     }
 
+    /// Problems that were found in the database.
+    ///
     #[derive(Debug, Default)]
     pub struct DbProblems {
+        /// There was some problem with the database.
         pub db_error: Option<crate::Error>,
+        /// There were problems with the loaded locations.
         pub location_problems: Option<DbLocationProblems>,
+        /// There were problems with the loaded weather history data.
         pub history_problems: Option<DbHistoryProblems>,
     }
     impl From<crate::Error> for DbProblems {
@@ -256,12 +301,18 @@ pub mod entities {
         }
     }
 
+    /// Problems that were found with the database locations.
+    ///
     #[derive(Debug, Default)]
     pub struct DbLocationProblems {
+        /// There are locations in the backing store that are not available in the database.
         pub missing_locations: Option<Vec<Location>>,
+        /// There are locations in the database that are not available in the backing store.
         pub detached_locations: Option<Vec<Location>>,
     }
 
+    /// Problems that were found with the database weather history data.
+    ///
     #[derive(Debug, Default)]
     pub struct DbHistoryProblems {
         /// The database and filesystem have different history counts.
@@ -270,26 +321,49 @@ pub mod entities {
         pub detached_store: Option<Vec<HistorySummaries>>,
     }
 
+    /// Detail information concerning problems with the data weather history data.
+    ///
     #[derive(Debug)]
     pub struct DbHistoryProblemDetails {
+        /// Identifies the location with problems.
         pub location: Location,
+        /// The count of weather history data in the database.
         pub db_histories: usize,
+        /// The count of weather history data in the backing store.
         pub fs_histories: usize,
     }
 
+    /// Problems encountered when accessing the backing store locations document.
+    ///
     #[derive(Debug, Default)]
     pub struct FilesysDocumentProblem {
+        /// There was a problem trying to open the locations document.
         pub open_error: Option<crate::Error>,
+        /// There was a problem trying to read the locations document.
         pub read_error: Option<crate::Error>,
     }
     impl FilesysDocumentProblem {
+        /// Create a new instance when there is an open error.
+        ///
+        /// # Arguments
+        ///
+        /// * `error` has a description of the problem.
+        ///
         pub fn open_error(error: crate::Error) -> Self {
             Self { open_error: Some(error), read_error: None }
         }
+
+        /// Create a new instance when there is a read error.
+        ///
+        /// # Arguments
+        ///
+        /// * `error` has a description of the problem.
+        ///
         pub fn read_error(error: crate::Error) -> Self {
             Self { open_error: None, read_error: Some(error) }
         }
     }
+
     /// The details about a problem found with a locations weather history data.
     ///
     #[derive(Debug)]
@@ -362,5 +436,44 @@ pub mod entities {
     pub struct UsCityDetails {
         pub db_size: usize,
         pub state_info: Vec<(String, usize)>,
+    }
+
+    /// The details about the Cities database.
+    ///
+    #[derive(Debug)]
+    pub struct CitiesDetails {
+        /// The database size in bytes.
+        pub db_size: usize,
+        /// The collection of details about countries.
+        pub country_details: Vec<CountryDetails>,
+    }
+
+    /// The details about countries in the Cities database.
+    ///
+    #[derive(Debug)]
+    pub struct CountryDetails {
+        /// The name of the country.
+        pub name: String,
+        /// The country code name.
+        pub code: String,
+        /// The collection of details about regions in the country.
+        pub region_details: Vec<RegionDetails>,
+    }
+    impl std::fmt::Display for CountryDetails {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{} ({})", self.name, self.code)
+        }
+    }
+
+    /// The details about a region in the Cities database.
+    ///
+    #[derive(Debug)]
+    pub struct RegionDetails {
+        /// The name of the region.
+        pub name: String,
+        /// The region code name.
+        pub code: String,
+        /// The count of cities in the region
+        pub city_count: usize,
     }
 }

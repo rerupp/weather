@@ -6,7 +6,7 @@ use py_entities::*;
 // use py_history_client::PyHistoryClient;
 use std::sync::OnceLock;
 use toolslib::{fmt::commafy, logs, stopwatch::StopWatch};
-use weather_lib::prelude::WeatherData;
+use weather_lib::prelude::{Location, LocationFilter, WeatherData};
 
 pub struct ElapsedTimer {
     banner: String,
@@ -178,27 +178,30 @@ impl PyWeatherData {
         }
     }
 
-    /// Search for locations that can be added to weather data.
+    /// Get city information for locations that can be added to weather data.
     ///
     /// # Arguments
     ///
     /// - `filter` is used to select cities and limit how many are returned as a location.
     ///
-    pub fn search_locations(&self, filter: PyCityFilter) -> PyResult<Vec<PyLocation>> {
-        elapsed_timer!("search_locations");
-        match self.0.search_locations(filter.into()) {
-            Ok(locations) => Ok(locations.into_iter().map(Into::into).collect()),
+    // todo: this needs to be updated to take a LocationFilter
+    pub fn get_cities(&self, city_filter: PyCityFilter) -> PyResult<Vec<PyLocation>> {
+        elapsed_timer!("get_cities");
+        let limit = city_filter.limit;
+        let filter = LocationFilter {
+            alias: None,
+            city: city_filter.name,
+            region: city_filter.region,
+            country: city_filter.country,
+        };
+        match self.0.get_cities(Some(vec![filter]), limit) {
             Err(error) => system_err!(error),
-        }
-    }
-
-    /// Get the state metadata for US Cities.
-    ///
-    pub fn get_states(&self) -> PyResult<Vec<PyState>> {
-        elapsed_timer!("get_states");
-        match self.0.get_states() {
-            Ok(states) => Ok(states.into_iter().map(Into::into).collect()),
-            Err(error) => system_err!(error),
+            Ok(cities) => {
+                let locations = cities.into_iter()
+                    .map(|city| PyLocation::from(Location::from(city)))
+                    .collect::<Vec<_>>();
+                Ok(locations)
+            },
         }
     }
 }

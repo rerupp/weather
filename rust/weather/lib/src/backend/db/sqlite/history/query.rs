@@ -187,13 +187,9 @@ fn sqlite_metadata_size(conn: &Connection) -> crate::Result<usize> {
             WHERE name LIKE '%metadata%'
     "#;
     let mut stmt = prepare_sql!(conn, SQL, "failed to prepare metadata size query")?;
-    let db_size = stmt.query_row([], |row| {
-        let size: usize = row.get("size")?;
-        Ok(size)
-    });
-    match db_size {
+    match stmt.query_row([], |row| Ok(row.get::<_, i64>("size")? as usize)) {
         Ok(db_size) => Ok(db_size),
-        Err(error) => err!("failed to get metadata database size: {:?}", error)?,
+        Err(error) => err!("failed to get metadata database size: {error:?}"),
     }
 }
 
@@ -213,13 +209,12 @@ fn sqlite_history_size(conn: &Connection, table_name: &str) -> crate::Result<usi
             WHERE name LIKE :table OR name LIKE '%metadata%'
         "#;
     let mut stmt = prepare_sql!(conn, SQL, "failed to prepare history size query")?;
-    let db_size = stmt.query_row(named_params! {":table": format!("%{}%", table_name)}, |row| {
-        let size: usize = row.get("size")?;
-        Ok(size)
+    let db_size = stmt.query_row(named_params! {":table": format!("%{table_name}%")}, |row| {
+       Ok(row.get::<_, i64>("size")? as usize) 
     });
     match db_size {
         Ok(db_size) => Ok(db_size),
-        Err(error) => err!("failed to get history database size: {:?}", error)?,
+        Err(error) => err!("failed to get history database size: {error:?}"),
     }
 }
 
@@ -255,7 +250,7 @@ pub fn history_counts(conn: &Connection) -> crate::Result<HistoryCounts> {
             Ok(Some(row)) => {
                 #[inline]
                 fn next_alias_count(row_: &Row) -> SqlResult<(String, usize)> {
-                    Ok((row_.get("alias")?, row_.get("count")?))
+                    Ok((row_.get("alias")?, row_.get::<_, i64>("count")? as usize))
                 }
                 match next_alias_count(row) {
                     Ok(alias_count) => counts.push(alias_count),

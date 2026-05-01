@@ -42,7 +42,7 @@ pub fn load(mut conn: Connection, weather_dir: &WeatherDir, max_threads: usize) 
     };
     let timer = toolslib::stopwatch::StopWatch::start_new();
     let mut count: usize = 0;
-    for (metadata, history) in fs_lib::get_history_contents(weather_dir, None, Some(max_threads))? {
+    for (metadata, history) in fs_lib::history_contents::get(weather_dir, None, Some(max_threads))? {
         match alias_ids.get(&history.alias) {
             None => {
                 log::error!("Did not find location alias {}", history.alias);

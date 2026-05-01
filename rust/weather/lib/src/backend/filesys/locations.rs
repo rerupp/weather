@@ -9,17 +9,10 @@ use crate::{
 };
 use locations_file::{LocationDocument, LocationsFile};
 
-/// Create a Locations specific error message.
-macro_rules! error {
-    ($($arg:tt)*) => {
-        crate::Error::from(format!("Locations {}", format!($($arg)*)))
-    }
-}
-
 /// Create an error from the locations specific error message.
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(error!($($arg)*))
+        Err(format!("Locations {}", format!($($arg)*)))
     };
 }
 
@@ -27,8 +20,7 @@ macro_rules! err {
 pub struct Locations<'w> {
     /// The locations file API.
     file: LocationsFile,
-    /// You need to hang onto the weather dir in order to add a location and create the associated
-    /// archive.
+    /// You need to hang onto the weather dir in order to add a location and create the associated archive.
     weather_dir: &'w WeatherDir,
 }
 impl<'w> Locations<'w> {
@@ -76,30 +68,45 @@ impl<'w> Locations<'w> {
     ///
     pub fn add(&self, mut location: Location) -> crate::Result<Location> {
         // even though it should come in okay, validate JIC
-        location.city = validate::city(&location.city)?;
-        location.state_id = validate::city(&location.state_id)?;
-        location.state = validate::city(&location.state)?;
-        location.alias = validate::alias(&location.alias)?;
-        location.latitude = validate::latitude(&location.latitude)?;
-        location.longitude = validate::longitude(&location.longitude)?;
-        location.tz = validate::tz(&location.tz)?;
+        use std::fmt::Write;
+        let mut validation_errors = String::new();
+        macro_rules! validate {
+            ($attr: ident) => {
+                match validate::$attr(&location.$attr) {
+                    Ok(attr) => location.$attr = attr,
+                    Err(problem) => write!(validation_errors, "\n  {problem}").unwrap(),
+                }
+            };
+        }
+        validate!(country_name);
+        validate!(country_code);
+        validate!(region_name);
+        validate!(region_code);
+        validate!(city_name);
+        validate!(alias);
+        validate!(latitude);
+        validate!(longitude);
+        validate!(tz);
+        if validation_errors.len() > 0 {
+            err!("there are validation error for the new location {location}:{}", validation_errors)?;
+        }
 
         // get the file contents and make sure the alias is unique
         let mut location_documents: Vec<LocationDocument> = self.file.load()?.collect();
-        let found_alias = location_documents.iter().find(|location_document| location_document.alias == location.alias);
-        if let Some(location_document) = found_alias {
-            err!("{} ({}) already uses the alias name", location_document.name, location_document.alias)?;
+        let duplicate = location_documents.iter().find(|document| document.alias == location.alias);
+        if let Some(document) = duplicate {
+            err!("{document} already uses the alias name")?;
         }
 
         // make sure the history archive does not exist before saving the location
         let archive_file = self.weather_dir.archive(&location.alias);
         if archive_file.exists() {
-            err!("The history archive for {} ({}) already exists.", location.name, location.alias)?;
+            err!("The history archive for {location} already exists.")?;
         }
 
         // make sure the documents are in location name order before saving
         location_documents.push(LocationDocument::from(&location));
-        location_documents.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+        location_documents.sort();
         self.file.save(location_documents)?;
 
         // create the archive
@@ -107,59 +114,77 @@ impl<'w> Locations<'w> {
         Ok(location)
     }
 
-    /// Update a locations properties.
+    /// Update a locations properties. The resulting location will only contain the attributes
+    /// that were updated.
     ///
     /// # Arguments
     ///
     /// * `location` identifies the location and contains the new properties.
     ///
-    ///
     pub fn update(&self, mut location: Location) -> crate::Result<Option<Location>> {
         // JIC verify the alias
         location.alias = validate::alias(&location.alias)?;
         // get the locations document
-        let mut location_documents= self.file.load()?.collect::<Vec<_>>();
+        let mut location_documents = self.file.load()?.collect::<Vec<_>>();
         let index = match location_documents.iter().position(|l| l.alias == location.alias) {
             Some(index) => index,
-            None => {
-                err!("Did not find '{}' in the locations document.", location.alias)?
-            }
+            None => err!("Did not find location {location} to update.")?,
         };
-        let location_document = location_documents.get_mut(index).unwrap();
+        let document = location_documents.get_mut(index).unwrap();
 
         // even though it should come in okay, validate JIC
         let mut changed = false;
+        use std::fmt::Write;
+        let mut validation_errors = String::new();
         macro_rules! update_if_changed {
             ($attr: ident) => {
-                if !location.$attr.is_empty() {
-                    location.$attr = validate::$attr(&location.$attr)?;
-                    if location_document.$attr != location.$attr {
-                        location_document.$attr = location.$attr.to_string();
-                        changed = true;
+                // if the location attribute is not empty
+                if location.$attr.len() > 0 {
+                    // validate the incoming location attribute
+                    match validate::$attr(&location.$attr) {
+                        Err(problem) => write!(validation_errors, "\n  {problem}").unwrap(),
+                        Ok(attr) => {
+                            // clear the location attribute if it matches the document
+                            if document.$attr == attr {
+                                location.$attr.clear();
+                            } else {
+                                // make sure the document and returned location attributes match
+                                document.$attr = attr;
+                                location.$attr = document.$attr.clone();
+                                changed = true;
+                            }
+                        }
                     }
                 }
             };
         }
-        update_if_changed!(city);
-        update_if_changed!(state_id);
-        update_if_changed!(state);
+        update_if_changed!(country_code);
+        update_if_changed!(country_name);
+        update_if_changed!(region_code);
+        update_if_changed!(region_name);
+        update_if_changed!(city_name);
         update_if_changed!(latitude);
         update_if_changed!(longitude);
         update_if_changed!(tz);
+        if validation_errors.len() > 0 {
+            err!("there are validation error for location {location} update:{}", validation_errors)?;
+        }
 
-        match changed {
-            false => {
-                log::debug!("{} did not have any changes.", location_document.get_name());
-                Ok(None)
-            }
-            true => {
-                // make sure the location has the correct name
-                location.name = location_document.get_name();
-                self.file.save(location_documents)?;
-                Ok(Some(location))
-            }
+        if changed {
+            self.file.save(location_documents)?;
+            Ok(Some(location))
+        } else {
+            log::debug!("Location update {document} did not have any changes.");
+            Ok(None)
         }
     }
+
+    /// Delete the location and archive data from the filesystem.
+    ///
+    /// * Arguments
+    ///
+    /// * `alias` is the location that will be deleted.
+    ///
     pub fn delete(&self, alias: &str) -> crate::Result<bool> {
         // get the location collection
         let mut original = self.file.load()?.collect::<Vec<_>>();
@@ -167,12 +192,12 @@ impl<'w> Locations<'w> {
         // remove the location that matches the alias name
         let mut update = original.extract_if(.., |l| l.alias != alias).collect::<Vec<_>>();
         if original.len() == update.len() {
-            log::warn!("The location '{alias}' was not found and could not be deleted.");
+            log::warn!("The location was not deleted, the alias '{alias}' was not found.");
             return Ok(false);
         }
 
         // persist the location collection
-        update.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+        update.sort();
         self.file.save(update)?;
 
         // try to remove the archive
@@ -201,20 +226,35 @@ impl LocationsIterator {
     /// * `documents` is the source document location iterator.
     /// * `filters` optionally select which locations will be returned.
     ///
-    fn new(documents: Box<dyn Iterator<Item = LocationDocument>>, mut filters: Vec<LocationFilter>) -> Self {
-        // force all the filter pattern to be lowercase
-        for filter in filters.iter_mut() {
-            if let Some(city) = filter.city.take() {
-                filter.city.replace(city.to_lowercase());
-            }
-            if let Some(state) = filter.state.take() {
-                filter.state.replace(state.to_lowercase());
-            }
-            if let Some(name) = filter.name.take() {
-                filter.name.replace(name.to_lowercase());
-            }
+    fn new(documents: Box<dyn Iterator<Item = LocationDocument>>, filters: Vec<LocationFilter>) -> Self {
+        Self {
+            documents,
+            filters: filters
+                .into_iter()
+                .filter_map(|mut filter| {
+                    // ignore empty filters
+                    if filter.is_none() {
+                        log::debug!("LocationsIterator filter is empty.");
+                        None
+                    } else {
+                        // force the filter patterns to be lowercase
+                        if let Some(alias) = filter.alias.take() {
+                            filter.alias.replace(alias.to_lowercase());
+                        }
+                        if let Some(city) = filter.city.take() {
+                            filter.city.replace(city.to_lowercase());
+                        }
+                        if let Some(state) = filter.region.take() {
+                            filter.region.replace(state.to_lowercase());
+                        }
+                        if let Some(name) = filter.country.take() {
+                            filter.country.replace(name.to_lowercase());
+                        }
+                        Some(filter)
+                    }
+                })
+                .collect(),
         }
-        Self { documents, filters }
     }
 
     /// Determine if a location should be returned from the iterator.
@@ -230,114 +270,34 @@ impl LocationsIterator {
         }
 
         // loop through the filters to find a match
+        let mut include_location = false;
         for filter in self.filters.iter() {
-            match (&filter.city, &filter.state, &filter.name) {
-                (Some(city), None, None) => {
-                    if Self::is_match(city, &location.city) {
-                        return true;
-                    }
+            if let Some(alias) = &filter.alias {
+                if !is_match(alias, &location.alias) {
+                    continue;
                 }
-                (None, Some(state), None) => {
-                    if Self::is_state_match(state, location) {
-                        return true;
-                    };
-                }
-                (None, None, Some(name)) => {
-                    if Self::is_name_match(name, location) {
-                        return true;
-                    };
-                }
-                (Some(city), Some(state), None) => {
-                    if Self::is_match(city, &location.city) && Self::is_state_match(state, location) {
-                        return true;
-                    };
-                }
-                (Some(city), None, Some(name)) => {
-                    if Self::is_match(city, &location.city) && Self::is_name_match(name, location) {
-                        return true;
-                    }
-                }
-                (None, Some(state), Some(name)) => {
-                    if Self::is_state_match(state, location) && Self::is_name_match(name, location) {
-                        return true;
-                    }
-                }
-                (Some(city), Some(state), Some(name)) => {
-                    if Self::is_match(city, &location.city)
-                        && Self::is_state_match(state, location)
-                        && Self::is_name_match(name, location)
-                    {
-                        return true;
-                    }
-                }
-                _ => (),
             }
-        }
-        false
-    }
+            if let Some(city) = &filter.city {
+                if !is_match(city, &location.city_name) {
+                    continue;
+                }
+            }
+            if let Some(region) = &filter.region {
+                if !(is_match(region, &location.region_name) || is_match(region, &location.region_code)) {
+                    continue;
+                }
+            }
+            if let Some(country) = &filter.country {
+                if !(is_match(country, &location.country_name) || is_match(country, &location.country_code)) {
+                    continue;
+                }
+            }
 
-    /// Test if there is a match with the location name or alias.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern` follows the form of *STRING|STRING*|*STRING*|*|STRING.
-    /// * `location` is the location document that will be tested.
-    ///
-    fn is_name_match(pattern: &str, location: &LocationDocument) -> bool {
-        Self::is_match(pattern, &location.alias) || Self::is_match(pattern, &location.name)
-    }
-
-    /// Test if there is a match with the location state name or two-letter abbreviation.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern` follows the form of *STRING|STRING*|*STRING*|*|STRING.
-    /// * `location` is the location document that will be tested.
-    ///
-    fn is_state_match(pattern: &str, location: &LocationDocument) -> bool {
-        if pattern.len() > 2 {
-            if Self::is_match(pattern, &location.state) {
-                return true;
-            }
+            // getting here means the filter passed since there are no empty filters
+            include_location = true;
+            break;
         }
-        if Self::is_match(pattern, &location.state_id) {
-            return true;
-        }
-        false
-    }
-
-    /// Test if there is a match between some string pattern and a string value.
-    /// Comparisons are case-insensitive.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern` follows the form of *STRING|STRING*|*STRING*|*|STRING.
-    /// * `value` is what the pattern will be compared to.
-    ///
-    fn is_match(pattern: &str, value: &str) -> bool {
-        let value = value.to_lowercase();
-        if pattern == "*" {
-            return true;
-        }
-        if pattern.starts_with("*") && pattern.ends_with("*") {
-            if value.contains(&pattern[1..pattern.len() - 1]) {
-                return true;
-            }
-        }
-        if pattern.starts_with("*") {
-            if value.ends_with(&pattern[1..]) {
-                return true;
-            }
-        }
-        if pattern.ends_with("*") {
-            if value.starts_with(&pattern[..pattern.len() - 1]) {
-                return true;
-            }
-        }
-        if pattern == value {
-            return true;
-        }
-        false
+        include_location
     }
 }
 impl Iterator for LocationsIterator {
@@ -359,6 +319,29 @@ impl Iterator for LocationsIterator {
     }
 }
 
+/// Test if there is a match between some string pattern and a string value.
+/// Comparisons are case-insensitive.
+///
+/// # Arguments
+///
+/// * `pattern` follows the form of *STRING|STRING*|*STRING*|*|STRING.
+/// * `value` is what the pattern will be compared to.
+///
+fn is_match(pattern: &str, value: &str) -> bool {
+    if pattern == "*" {
+        true
+    } else {
+        let pattern = pattern.to_lowercase();
+        let value = value.to_lowercase();
+        match (pattern.starts_with("*"), pattern.ends_with("*")) {
+            (true, true) => value.contains(&pattern[1..pattern.len() - 1]),
+            (true, false) => value.ends_with(&pattern[1..]),
+            (false, true) => value.starts_with(&pattern[..pattern.len() - 1]),
+            _ => value == pattern,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,14 +360,13 @@ mod tests {
         assert_eq!(testcase[1].alias, "north");
         assert_eq!(testcase[2].alias, "south");
 
-        let testcase =
-            locations.get(Some(vec![LocationFilter::name("*tH")])).unwrap().collect::<Vec<Location>>();
+        let testcase = locations.get(Some(vec![LocationFilter::alias("*tH")])).unwrap().collect::<Vec<Location>>();
         assert_eq!(testcase.len(), 2);
         assert_eq!(testcase[0].alias, "north");
         assert_eq!(testcase[1].alias, "south");
 
         let testcase = locations
-            .get(Some(vec![LocationFilter::name("north"), LocationFilter::name("south")]))
+            .get(Some(vec![LocationFilter::region("ga"), LocationFilter::region("mt")]))
             .unwrap()
             .collect::<Vec<Location>>();
         assert_eq!(testcase.len(), 2);
@@ -392,19 +374,22 @@ mod tests {
         assert_eq!(testcase[1].alias, "south");
 
         let location = Location {
-            city: "  New City".to_string(),
-            state_id: "abrev_state ".to_string(),
-            state: " state".to_string(),
-            name: Default::default(),
+            country_name: "Country".to_string(),
+            country_code: "CO".to_string(),
+            region_name: "Region ".to_string(),
+            region_code: " RN".to_string(),
+            city_name: "  New City".to_string(),
             alias: " nEw ".to_string(),
             latitude: "1 ".to_string(),
             longitude: " 0 ".to_string(),
             tz: "utc".to_string(),
         };
         let location = locations.add(location).unwrap();
-        assert_eq!(location.city, "New City");
-        assert_eq!(location.state_id, "abrev_state");
-        assert_eq!(location.state, "state");
+        assert_eq!(location.country_name, "Country");
+        assert_eq!(location.country_code, "CO");
+        assert_eq!(location.region_name, "Region");
+        assert_eq!(location.region_code, "RN");
+        assert_eq!(location.city_name, "New City");
         assert_eq!(location.alias, "new");
         assert_eq!(location.latitude, "1");
         assert_eq!(location.longitude, "0");
@@ -416,10 +401,11 @@ mod tests {
 
         // update the new location
         let update = Location {
-            city: "Updated City ".to_string(),
-            state_id: "updated state_id".to_string(),
-            state: " updated state".to_string(),
-            name: Default::default(),
+            country_name: " updated Country".to_string(),
+            country_code: "updated CO".to_string(),
+            region_name: " updated Region".to_string(),
+            region_code: "updated RN".to_string(),
+            city_name: "Updated City ".to_string(),
             alias: "new".to_string(),
             latitude: " -1".to_string(),
             longitude: "1 ".to_string(),
@@ -427,9 +413,11 @@ mod tests {
         };
         // unwrap the result and get the option value
         let updated_location = locations.update(update).unwrap().unwrap();
-        assert_eq!(updated_location.city, "Updated City");
-        assert_eq!(updated_location.state_id, "updated state_id");
-        assert_eq!(updated_location.state, "updated state");
+        assert_eq!(updated_location.country_name, "updated Country");
+        assert_eq!(updated_location.country_code, "updated CO");
+        assert_eq!(updated_location.region_name, "updated Region");
+        assert_eq!(updated_location.region_code, "updated RN");
+        assert_eq!(updated_location.city_name, "Updated City");
         assert_eq!(updated_location.alias, "new");
         assert_eq!(updated_location.latitude, "-1");
         assert_eq!(updated_location.longitude, "1");
@@ -437,10 +425,11 @@ mod tests {
 
         // check partial update
         let partial_update = Location {
-            city: "Partial Update City".to_string(),
-            state_id: "id".to_string(),
-            state: "State".to_string(),
-            name: "".to_string(),
+            country_name: "Partial Update Country".to_string(),
+            country_code: "Partial Update CO".to_string(),
+            region_name: "State".to_string(),
+            region_code: "id".to_string(),
+            city_name: "Partial Update City".to_string(),
             alias: "new".to_string(),
             latitude: "".to_string(),
             longitude: "".to_string(),
@@ -449,12 +438,14 @@ mod tests {
         assert!(locations.update(partial_update).unwrap().is_some());
 
         // verify the document contents
-        let testcase = locations.get(Some(vec![LocationFilter::name("new")])).unwrap()
-            .find(|location| &location.alias == "new")
-            .unwrap();
-        assert_eq!(testcase.city, "Partial Update City");
-        assert_eq!(testcase.state_id, "id");
-        assert_eq!(testcase.state, "State");
+        let mut documents = locations.get(Some(vec![LocationFilter::alias("new")])).unwrap().collect::<Vec<_>>();
+        assert_eq!(documents.len(), 1);
+        let testcase = documents.pop().unwrap();
+        assert_eq!(testcase.country_name, "Partial Update Country");
+        assert_eq!(testcase.country_code, "Partial Update CO");
+        assert_eq!(testcase.region_name, "State");
+        assert_eq!(testcase.region_code, "id");
+        assert_eq!(testcase.city_name, "Partial Update City");
         assert_eq!(testcase.alias, updated_location.alias);
         assert_eq!(testcase.latitude, updated_location.latitude);
         assert_eq!(testcase.longitude, updated_location.longitude);
@@ -466,38 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn iterator_matching() {
-        assert!(LocationsIterator::is_match("*", "value"));
-        assert!(LocationsIterator::is_match("*ue", "valUE"));
-        assert!(LocationsIterator::is_match("v*", "Value"));
-        assert!(LocationsIterator::is_match("*al*", "vALue"));
-        assert!(!LocationsIterator::is_match("al", "vALue"));
-
-        let testcase = LocationDocument::from(Location {
-            city: String::from("City"),
-            state: String::from("State"),
-            state_id: String::from("ST"),
-            name: String::from("City, ST"),
-            alias: String::from("city"),
-            latitude: String::from("1"),
-            longitude: String::from("1"),
-            tz: String::from("UTC"),
-        });
-        assert!(LocationsIterator::is_name_match("ci*", &testcase));
-        assert!(LocationsIterator::is_name_match("*ty", &testcase));
-        assert!(LocationsIterator::is_name_match("*, st", &testcase));
-        assert!(LocationsIterator::is_name_match("city", &testcase));
-        assert!(LocationsIterator::is_name_match("city, st", &testcase));
-
-        assert!(LocationsIterator::is_state_match("s*", &testcase));
-        assert!(LocationsIterator::is_state_match("st*", &testcase));
-        assert!(LocationsIterator::is_state_match("sta*", &testcase));
-        assert!(LocationsIterator::is_state_match("state", &testcase));
-        assert!(LocationsIterator::is_state_match("st", &testcase));
-    }
-
-    #[test]
-    fn iterator2() {
+    fn iterator() {
         let fixture = testlib::TestFixture::create();
         fixture.copy_resources(&testlib::test_resources().join("filesys").join("locations.json"));
         let weather_dir = WeatherDir::try_from(fixture.to_string()).unwrap();
@@ -509,21 +469,37 @@ mod tests {
             };
         }
         assert_eq!(testcase!(vec![]).len(), 3);
-        assert_eq!(testcase!(vec![LocationFilter::city("South*")]).len(), 1);
-        assert_eq!(testcase!(vec![LocationFilter::state("KS")]).len(), 1);
-        assert_eq!(testcase!(vec![LocationFilter::name("north*")]).len(), 1);
-        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_state("GA")]).len(), 1);
-        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_name("south")]).len(), 1);
-        assert_eq!(testcase!(vec![LocationFilter::state("GA").with_name("south")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::city("Southern City")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::alias("south")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::region("Kansas")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::region("KS")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::country("United States")]).len(), 3);
+        assert_eq!(testcase!(vec![LocationFilter::country("us")]).len(), 3);
+        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_region("GA")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::city("South*").with_country("US")]).len(), 1);
+        assert_eq!(testcase!(vec![LocationFilter::region("GA").with_country("us")]).len(), 1);
 
-        let locations = testcase!(vec![LocationFilter::city("Southern City").with_state("GA").with_name("south")]);
+        let locations = testcase!(vec![LocationFilter::city("south*").with_region("ga").with_country("us")]);
         assert_eq!(locations.len(), 1);
 
         let locations = testcase!(vec![
             LocationFilter::city("Southern City"),
-            LocationFilter::state("KS"),
-            LocationFilter::name("north"),
+            LocationFilter::city("between City"),
+            LocationFilter::alias("north"),
         ]);
         assert_eq!(locations.len(), 3);
+    }
+
+    #[test]
+    fn is_match() {
+        assert!(super::is_match("*", ""));
+        assert!(super::is_match("*", "value"));
+        assert!(super::is_match("*ue", "valUE"));
+        assert!(!super::is_match("ue", "valUE"));
+        assert!(super::is_match("va*", "Value"));
+        assert!(!super::is_match("va", "Value"));
+        assert!(super::is_match("*al*", "vALue"));
+        assert!(!super::is_match("al", "vALue"));
+        assert!(super::is_match("value", "VALUE"));
     }
 }

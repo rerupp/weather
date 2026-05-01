@@ -10,43 +10,62 @@ macro_rules! validate_not_empty {
     ($what: literal, $value: expr) => {{
         let value = $value.trim();
         if value.is_empty() {
-            validate_err!("location {} cannot be empty.", $what)?;
+            validate_err!("{} cannot be empty.", $what)?;
         }
         value.to_string()
     }};
+}
+
+/// Validate a locations country name.
+///
+/// # Arguments
+///
+/// * `name` is the location country name.
+///
+pub fn country_name(name: &str) -> crate::Result<String> {
+    Ok(validate_not_empty!("country name", name))
+}
+
+/// Validate a locations country code.
+///
+/// # Arguments
+///
+/// * `code` is the location country code.
+///
+pub fn country_code(code: &str) -> crate::Result<String> {
+    Ok(validate_not_empty!("country code", code))
+}
+
+/// Validate a locations region name.
+///
+/// # Arguments
+///
+/// * `name` is the location region name.
+///
+pub fn region_name(name: &str) -> crate::Result<String> {
+    Ok(validate_not_empty!("region name", name))
+}
+
+/// Validate a locations region code.
+///
+/// # Arguments
+///
+/// * `code` is the location region code.
+///
+pub fn region_code(code: &str) -> crate::Result<String> {
+    // let state_id = validate_not_empty!("state ID", region_code);
+    // Ok(state_id)
+    Ok(validate_not_empty!("region code", code))
 }
 
 /// Validate a locations city name.
 ///
 /// # Arguments
 ///
-/// * `city_name` is the name of the city.
+/// * `name` is the name of the city.
 ///
-pub fn city(city_name: &str) -> crate::Result<String> {
-    let city_name = validate_not_empty!("city name", city_name);
-    Ok(city_name)
-}
-
-/// Validate a locations abbreviated state name.
-///
-/// # Arguments
-///
-/// * `state_id` is the location abbreviated state name.
-///
-pub fn state_id(state_id: &str) -> crate::Result<String> {
-    let state_id = validate_not_empty!("state ID", state_id);
-    Ok(state_id)
-}
-
-/// Validate a locations state name.
-///
-/// # Arguments
-///
-/// * `state_name` is the location state name.
-///
-pub fn state(state_name: &str) -> crate::Result<String> {
-    let state_name = validate_not_empty!("state name", state_name);
-    Ok(state_name)
+pub fn city_name(name: &str) -> crate::Result<String> {
+    Ok(validate_not_empty!("city name", name))
 }
 
 /// Validate a locations alias name.
@@ -56,8 +75,7 @@ pub fn state(state_name: &str) -> crate::Result<String> {
 /// * `alias` is the locations alias name.
 ///
 pub fn alias(alias: &str) -> crate::Result<String> {
-    let alias = validate_not_empty!("alias", alias).to_lowercase();
-    Ok(validate_not_empty!("alias", alias))
+    Ok(validate_not_empty!("alias", alias).to_lowercase())
 }
 
 /// Validate a locations latitude.
@@ -122,42 +140,86 @@ pub fn tz(tz_name: &str) -> crate::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    #[test]
-    fn alias_validator() {
-        assert_eq!(alias(" TEST ").unwrap(), "test");
-        assert!(alias("").is_err());
-        assert!(alias(" ").is_err());
+    macro_rules! validate_not_empty_testcases {
+        ($testcase: ident, $error_pattern: literal) => {
+            assert!($testcase("").is_err());
+            if let Err(error) = $testcase("") {
+                assert!(error.to_string().contains($error_pattern));
+            }
+            assert!($testcase(" ").is_err());
+        };
     }
 
     #[test]
-    fn latitude_validator() {
-        assert_eq!(latitude(" 90 ").unwrap(), "90");
-        assert!(latitude("90.0000000001").is_err());
-        assert_eq!(latitude("-90").unwrap(), "-90");
-        assert!(latitude("-90.0000000001").is_err());
-        assert!(latitude("").is_err());
-        assert!(latitude(" ").is_err());
-        assert!(latitude("abc").is_err());
+    fn country_name() {
+        let testcase = super::country_name;
+        validate_not_empty_testcases!(testcase, "country name");
+        assert_eq!(testcase(" Country Name ").unwrap(), "Country Name");
     }
 
     #[test]
-    fn longitude_validator() {
-        assert_eq!(longitude(" 180 ").unwrap(), "180");
-        assert!(longitude("180.0000000001 ").is_err());
-        assert_eq!(longitude("-180 ").unwrap(), "-180");
-        assert!(longitude("-180.0000000001 ").is_err());
-        assert!(longitude("").is_err());
-        assert!(longitude(" ").is_err());
-        assert!(longitude("abc").is_err());
+    fn country_code() {
+        let testcase = super::country_code;
+        validate_not_empty_testcases!(testcase, "country code");
+        assert_eq!(testcase(" Country Code ").unwrap(), "Country Code");
     }
 
     #[test]
-    fn tz_validator() {
-        assert_eq!(tz(" utc ").unwrap(), "UTC");
-        assert!(tz("").is_err());
-        assert!(tz(" ").is_err());
-        assert!(tz("some TZ").is_err());
+    fn region_name() {
+        let testcase = super::region_name;
+        validate_not_empty_testcases!(testcase, "region name");
+        assert_eq!(testcase(" Region Name ").unwrap(), "Region Name");
+    }
+
+    #[test]
+    fn region_code() {
+        let testcase = super::region_code;
+        validate_not_empty_testcases!(testcase, "region code");
+        assert_eq!(testcase(" Region Code ").unwrap(), "Region Code");
+    }
+
+    #[test]
+    fn city_name() {
+        let testcase = super::city_name;
+        validate_not_empty_testcases!(testcase, "city name");
+        assert_eq!(testcase(" Name City ").unwrap(), "Name City");
+    }
+
+    #[test]
+    fn alias() {
+        let testcase = super::alias;
+        validate_not_empty_testcases!(testcase, "alias");
+        assert_eq!(testcase(" Alias ").unwrap(), "alias");
+    }
+
+    #[test]
+    fn latitude() {
+        let testcase = super::latitude;
+        validate_not_empty_testcases!(testcase, "latitude");
+        assert_eq!(testcase(" 90 ").unwrap(), "90");
+        assert!(testcase("90.0000000001").is_err());
+        assert_eq!(testcase("-90").unwrap(), "-90");
+        assert!(testcase("-90.0000000001").is_err());
+        assert!(testcase("abc").is_err());
+    }
+
+    #[test]
+    fn longitude() {
+        let testcase = super::longitude;
+        validate_not_empty_testcases!(testcase, "longitude");
+        assert_eq!(testcase(" 180 ").unwrap(), "180");
+        assert!(testcase("180.0000000001 ").is_err());
+        assert_eq!(testcase("-180 ").unwrap(), "-180");
+        assert!(testcase("-180.0000000001 ").is_err());
+        assert!(testcase("abc").is_err());
+    }
+
+    #[test]
+    fn tz() {
+        let testcase = super::tz;
+        validate_not_empty_testcases!(testcase, "tz");
+        assert_eq!(testcase(" utc ").unwrap(), "UTC");
+        assert!(testcase("some TZ").is_err());
     }
 }

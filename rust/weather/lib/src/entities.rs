@@ -1,4 +1,4 @@
-//! Structures used by the weather data `API`s.
+//! Structures used by the weather data API.
 
 use chrono::{Datelike, Days, NaiveDate, NaiveDateTime};
 
@@ -35,16 +35,18 @@ pub struct HistorySummaries {
 }
 
 /// The data that comprises a location.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Location {
+    /// The country name such as *United States* or *Canada*.
+    pub country_name: String,
+    /// The country code such as *US* or *CA*.
+    pub country_code: String,
+    /// The region name such as *Arizona* or *British Columbia*.
+    pub region_name: String,
+    /// The region code such as *AZ* or *BC*.
+    pub region_code: String,
     /// The name of the city.
-    pub city: String,
-    /// The short state name.
-    pub state_id: String,
-    /// The full state name.
-    pub state: String,
-    /// The name of a location.
-    pub name: String,
+    pub city_name: String,
     /// A unique nickname of a location.
     pub alias: String,
     /// The location latitude.
@@ -56,27 +58,96 @@ pub struct Location {
 }
 impl std::fmt::Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self.name.is_empty() {
-            true => "unknown",
-            false => &self.name,
-        };
-        write!(f, "{name} ({})", self.alias)
+        write!(f, "{}, {} ({})", self.city_name, self.region_code, self.alias)
     }
 }
+/// This macro will order locations by comparing city_name, region_code, country_code, and alias.
+macro_rules! location_order {
+    ($lhs: expr, $rhs: expr) => {
+        match $lhs.city_name.cmp(&$rhs.city_name) {
+            std::cmp::Ordering::Equal => match $lhs.region_code.cmp(&$rhs.region_code) {
+                std::cmp::Ordering::Equal => match $lhs.country_code.cmp(&$rhs.country_code) {
+                    std::cmp::Ordering::Equal => $lhs.alias.cmp(&$rhs.alias),
+                    country_code_ordering => country_code_ordering,
+                },
+                region_code_ordering => region_code_ordering,
+            },
+            city_name_ordering => city_name_ordering,
+        }
+    };
+}
+pub(crate) use location_order;
+impl Ord for Location {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        location_order!(self, other)
+    }
+}
+impl PartialOrd for Location {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+/// This macro is used to check if two locations match by checking the alias, city_name,
+/// region_code, and country_code.
+///
+macro_rules! location_equal {
+    ($lhs: expr, $rhs: expr) => {
+        $lhs.alias == $rhs.alias
+            && $lhs.city_name == $rhs.city_name
+            && $lhs.region_code == $rhs.region_code
+            && $lhs.country_code == $rhs.country_code
+    };
+}
+pub(crate) use location_equal;
+impl PartialEq for Location {
+    fn eq(&self, other: &Self) -> bool {
+        location_equal!(self, other)
+    }
+}
+impl Eq for Location {}
 
 /// The data that identifies selection of a location or locations.
+///
 #[derive(Clone, Debug, Default)]
 pub struct LocationFilter {
-    /// A location can be searched by the city name.
+    /// Locations can be searched by the alias name.
+    pub alias: Option<String>,
+    /// Locations can be searched by city name.
     pub city: Option<String>,
-
-    /// A location can be searched by the state name (full or two-letter form).
-    pub state: Option<String>,
-
-    /// A location can be searched for by its name or alias.
-    pub name: Option<String>,
+    /// Locations can be searched by the region name or code.
+    pub region: Option<String>,
+    /// Locations can be searched for by the country name or code.
+    pub country: Option<String>,
+}
+impl std::fmt::Display for LocationFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LocationFilter {{")?;
+        if let Some(alias) = &self.alias {
+            write!(f, " alias=\"{alias}\"")?;
+        }
+        if let Some(city) = &self.city {
+            write!(f, " city=\"{}\"", city)?;
+        }
+        if let Some(region) = &self.region {
+            write!(f, " region=\"{}\"", region)?;
+        }
+        if let Some(country) = &self.country {
+            write!(f, " country=\"{}\"", country)?;
+        }
+        write!(f, " }}")
+    }
 }
 impl LocationFilter {
+    /// Create a new location filter initialized with an alias name.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` is the location alias name.
+    ///
+    pub fn alias(alias: impl Into<String>) -> LocationFilter {
+        Self { alias: Some(alias.into()), ..Default::default() }
+    }
+
     /// Create a new location filter initialized with a city name.
     ///
     /// # Arguments
@@ -84,27 +155,27 @@ impl LocationFilter {
     /// * `city` is the name of the city.
     ///
     pub fn city(city: impl Into<String>) -> LocationFilter {
-        Self { city: Some(city.into()), state: None, name: None }
+        Self { city: Some(city.into()), ..Default::default() }
     }
 
-    /// Create a new location filter initialized with a state name.
+    /// Create a new location filter initialized with a region name or code.
     ///
     /// # Arguments
     ///
-    /// * `state` is the name of the state.
+    /// * `region` is the region name or code.
     ///
-    pub fn state(state: impl Into<String>) -> LocationFilter {
-        Self { city: None, state: Some(state.into()), name: None }
+    pub fn region(region: impl Into<String>) -> LocationFilter {
+        Self { region: Some(region.into()), ..Default::default() }
     }
 
-    /// Create a new location filter initialized with a location name.
+    /// Create a new location filter initialized with a country name or code.
     ///
     /// # Arguments
     ///
-    /// * `name` is the name of the state.
+    /// * `country` is the country name or code.
     ///
-    pub fn name(name: impl Into<String>) -> LocationFilter {
-        Self { city: None, state: None, name: Some(name.into()) }
+    pub fn country(country: impl Into<String>) -> LocationFilter {
+        Self { country: Some(country.into()), ..Default::default() }
     }
 
     /// A builder method that adds a city name to the filter.
@@ -118,32 +189,32 @@ impl LocationFilter {
         self
     }
 
-    /// A builder method that adds a state name to the filter.
+    /// A builder method that adds a region name or code to the filter.
     ///
     /// # Arguments
     ///
-    /// * `state` is the name of the state.
+    /// * `region` is the name of the state.
     ///
-    pub fn with_state(mut self, state: impl Into<String>) -> Self {
-        self.state.replace(state.into());
+    pub fn with_region(mut self, region: impl Into<String>) -> Self {
+        self.region.replace(region.into());
         self
     }
 
-    /// A builder method that adds a location name to the filter.
+    /// A builder method that adds a country name or code to the filter.
     ///
     /// # Arguments
     ///
-    /// * `name` is the name of the location.
+    /// * `country` is the name of the location.
     ///
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name.replace(name.into());
+    pub fn with_country(mut self, country: impl Into<String>) -> Self {
+        self.country.replace(country.into());
         self
     }
 
     /// Returns true if the city, state, and name are NONE.
     ///
     pub fn is_none(&self) -> bool {
-        self.city.is_none() && self.state.is_none() && self.name.is_none()
+        self.alias.is_none() && self.city.is_none() && self.region.is_none() && self.country.is_none()
     }
 }
 
@@ -391,16 +462,21 @@ impl DateRange {
     ///
     /// # Arguments
     ///
-    /// * `from` is the starting date.
-    /// * `thru` is the inclusive end date.
+    /// * `start` is the starting date.
+    /// * `end` is the inclusive end date.
+    ///
     pub fn new(start: NaiveDate, end: NaiveDate) -> DateRange {
         DateRange { start, end }
     }
+
     /// Returns `true` if the *from* and *to* dates are equal.
+    ///
     pub fn is_one_day(&self) -> bool {
         &self.start == &self.end
     }
+
     /// Returns `true` if the date range covers an entire year.
+    ///
     pub fn is_one_year(&self) -> bool {
         if self.start.month() == 1 && self.start.day() == 1 {
             if self.end.month() == 12 && self.end.day() == 31 {
@@ -411,7 +487,9 @@ impl DateRange {
         }
         false
     }
-    /// Returns `true` if the date range covers multi entire years.
+
+    /// Returns `true` if the date range covers multiple entire years.
+    ///
     pub fn is_multi_year(&self) -> bool {
         if self.start.month() == 1 && self.start.day() == 1 {
             if self.end.month() == 12 && self.end.day() == 31 {
@@ -422,19 +500,68 @@ impl DateRange {
         }
         false
     }
-    /// Identifies if a date is within the date range.
+
+    /// Convert the date range into an annualized collection of date ranges.
+    ///
+    pub fn annualized(&self) -> Vec<DateRange> {
+        let mut date_ranges = vec![];
+        // check if the date range is within the same year
+        if self.start.year() == self.end.year() {
+            date_ranges.push(DateRange::new(self.start, self.end));
+        } else {
+            // there are at least 2 annualized years at this point
+            macro_rules! eoy {
+                ($year:expr) => {
+                    NaiveDate::from_ymd_opt($year, 12, 31).unwrap()
+                };
+            }
+
+            // add the first annualized date range
+            let mut year = self.start.year();
+            date_ranges.push(DateRange::new(self.start, eoy!(year)));
+            year += 1;
+
+            // now walk the years until you're outside the date range
+            while let Some(start_date) = NaiveDate::from_ymd_opt(year, 1, 1) {
+                // you're done once the start date is outside the date range
+                if !self.contains(&start_date) {
+                    break;
+                }
+
+                // you're done if the last day of the year is outside the date range
+                let end_of_year = eoy!(year);
+                if !self.contains(&end_of_year) {
+                    date_ranges.push(DateRange::new(start_date, self.end));
+                    break;
+                }
+
+                // save the date range and move onto the next year
+                date_ranges.push(DateRange::new(start_date, end_of_year));
+                year += 1;
+            }
+        }
+        date_ranges
+    }
+
+    /// Identifies if a date is greater than or equal to the start date and less than or
+    /// equal to the end date.
     ///
     /// # Arguments
     ///
     /// * `date` is the date that will be checked.
+    ///
     pub fn contains(&self, date: &NaiveDate) -> bool {
         date >= &self.start && date <= &self.end
     }
+
     /// Allow the history range to be iterated over without consuming it.
+    ///
     pub fn iter(&self) -> DateRangeIterator {
         DateRangeIterator { from: self.start, thru: self.end }
     }
+
     /// Returns the dates as a tuple of ISO8601 formatted strings.
+    ///
     pub fn as_iso8601(&self) -> (String, String) {
         use toolslib::date_time::isodate;
         (isodate(&self.start), isodate(&self.end))
@@ -526,10 +653,10 @@ pub struct CityFilter {
     pub name: Option<String>,
 
     /// The optional state name.
-    pub state: Option<String>,
+    pub region: Option<String>,
 
     /// The optional zip code.
-    pub zip_code: Option<String>,
+    pub country: Option<String>,
 
     /// Limits the number of matches that will be returned.
     pub limit: usize,
@@ -537,7 +664,43 @@ pub struct CityFilter {
 /// The default limit is set at 25.
 impl Default for CityFilter {
     fn default() -> Self {
-        Self { name: None, state: None, zip_code: None, limit: 25 }
+        Self { name: None, region: None, country: None, limit: 25 }
+    }
+}
+
+/// The bean that holds city information.
+#[derive(Debug)]
+pub struct City {
+    /// The city county name such as *United States* or *Canada*.
+    pub country_name: String,
+    /// The city country code such as *US* or *CA*.
+    pub country_code: String,
+    /// The city region name such as *Arizona* or *British Columbia*.
+    pub region_name: String,
+    /// The city region code such as *AZ* or *BC*.
+    pub region_code: String,
+    /// The name of the city.
+    pub name: String,
+    /// The city latitude.
+    pub latitude: String,
+    /// The city longitude.
+    pub longitude: String,
+    /// The city timezone.
+    pub tz: String,
+}
+impl From<City> for Location {
+    fn from(city: City) -> Self {
+        Location {
+            country_name: city.country_name,
+            country_code: city.country_code,
+            region_code: city.region_code,
+            region_name: city.region_name,
+            city_name: city.name,
+            alias: String::default(),
+            latitude: city.latitude,
+            longitude: city.longitude,
+            tz: city.tz,
+        }
     }
 }
 
@@ -569,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn date_range_is_within() {
+    fn date_range_contains() {
         let testcase = DateRange::new(get_date(2023, 7, 1), get_date(2023, 7, 31));
         assert!(testcase.contains(&get_date(2023, 7, 1)));
         assert!(!testcase.contains(&get_date(2023, 6, 30)));
@@ -610,6 +773,33 @@ mod tests {
     }
 
     #[test]
+    fn daterange_annualized() {
+        macro_rules! date {
+            ($y:expr, $m:expr, $d:expr) => {
+                NaiveDate::from_ymd_opt($y, $m, $d).unwrap()
+            };
+        }
+
+        // check a partial year
+        let testcase = DateRange::new(date!(2022, 1, 1), date!(2022, 12, 30)).annualized();
+        assert_eq!(testcase.len(), 1);
+        assert_eq!(&testcase[0], &DateRange::new(date!(2022, 1, 1), date!(2022, 12, 30)));
+
+        // check partial years
+        let testcase = DateRange::new(date!(2022, 12, 31), date!(2023, 1, 1)).annualized();
+        assert_eq!(testcase.len(), 2);
+        assert_eq!(testcase[0], DateRange::new(date!(2022, 12, 31), date!(2022, 12, 31)));
+        assert_eq!(testcase[1], DateRange::new(date!(2023, 1, 1), date!(2023, 1, 1)));
+
+        // check partial years
+        let testcase = DateRange::new(date!(2023, 1, 1), date!(2025, 12, 31)).annualized();
+        assert_eq!(testcase.len(), 3);
+        assert_eq!(testcase[0], DateRange::new(date!(2023, 1, 1), date!(2023, 12, 31)));
+        assert_eq!(testcase[1], DateRange::new(date!(2024, 1, 1), date!(2024, 12, 31)));
+        assert_eq!(testcase[2], DateRange::new(date!(2025, 1, 1), date!(2025, 12, 31)));
+    }
+
+    #[test]
     pub fn date_ranges() {
         let mut dates = DateRange::new(get_date(2012, 1, 1), get_date(2012, 4, 30)).into_iter().collect::<Vec<_>>();
         dates.append(&mut DateRange::new(get_date(2019, 10, 1), get_date(2021, 4, 30)).into_iter().collect::<Vec<_>>());
@@ -641,20 +831,20 @@ mod tests {
         let testcase = LocationFilter::default().with_city("city");
         assert!(!testcase.is_none());
         assert_eq!(testcase.city.unwrap(), "city");
-        assert!(testcase.state.is_none());
-        assert!(testcase.name.is_none());
+        assert!(testcase.region.is_none());
+        assert!(testcase.country.is_none());
 
-        let testcase = LocationFilter::default().with_state("state");
+        let testcase = LocationFilter::default().with_region("state");
         assert!(!testcase.is_none());
         assert!(testcase.city.is_none());
-        assert_eq!(testcase.state.unwrap(), "state");
-        assert!(testcase.name.is_none());
+        assert_eq!(testcase.region.unwrap(), "state");
+        assert!(testcase.country.is_none());
 
-        let testcase = LocationFilter::default().with_name("name");
+        let testcase = LocationFilter::default().with_country("name");
         assert!(!testcase.is_none());
         assert!(testcase.city.is_none());
-        assert!(testcase.state.is_none());
-        assert_eq!(testcase.name.unwrap(), "name");
+        assert!(testcase.region.is_none());
+        assert_eq!(testcase.country.unwrap(), "name");
     }
 
     #[test]

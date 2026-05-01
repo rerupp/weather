@@ -284,7 +284,7 @@ pub fn delete(tx: &Transaction, lid: i64) -> crate::Result<()> {
 }
 
 pub fn check(conn: &mut Connection, weather_dir: &WeatherDir) -> crate::Result<Option<DbHistoryProblems>> {
-    let fs_history_counts = fs_lib::get_history_counts(weather_dir, None)?;
+    let fs_history_counts = fs_lib::history_counts::get(weather_dir, None)?;
     let mut history_problems = vec![];
     let mut detached_store = vec![];
     for history_summaries in summary(conn, weather_dir, None)? {

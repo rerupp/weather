@@ -1,6 +1,6 @@
 # Unfortunately the typing information is needed to make sure PyCharm can grok
 # PyO3 bindings. It would be nice if PyO3 would mine this from the Rust documentation
-# but it looks like that project has been put on hold.
+# however it looks like that project has been put on hold.
 #
 # Another issue is PyCharm doesn't use any typing information from the interface. So
 # the best you can see from the IDE is the bare function definition and return types.
@@ -27,7 +27,7 @@ class PyWeatherData:
 
     def add_location(self, location: PyLocation) -> None: ...
 
-    def search_locations(self, filter: PyCityFilter) -> List[PyLocation]: ...
+    def get_cities(self, filter: PyCityFilter) -> List[PyLocation]: ...
 
     def get_states(self) -> List[PyState]: ...
 
@@ -88,25 +88,34 @@ class PyHistoriesFuture:
 
 class PyLocation:
     @property
-    def city(self) -> str | None: ...
+    def country_name(self) -> str | None: ...
 
-    @city.setter
-    def city(self, str) -> None: ...
-
-    @property
-    def state(self) -> str | None: ...
-
-    @state.setter
-    def state(self, str) -> None: ...
+    @country_name.setter
+    def country_name(self, str) -> None: ...
 
     @property
-    def state_id(self) -> str | None: ...
+    def country_code(self) -> str | None: ...
 
-    @state_id.setter
-    def state_id(self, str) -> None: ...
+    @country_code.setter
+    def country_code(self, str) -> None: ...
 
     @property
-    def name(self) -> str | None: ...
+    def region_name(self) -> str | None: ...
+
+    @region_name.setter
+    def region_name(self, str) -> None: ...
+
+    @property
+    def region_code(self) -> str | None: ...
+
+    @region_code.setter
+    def region_code(self, str) -> None: ...
+
+    @property
+    def city_name(self) -> str | None: ...
+
+    @city_name.setter
+    def city_name(self, str) -> None: ...
 
     @property
     def alias(self) -> str | None: ...
@@ -134,9 +143,11 @@ class PyLocation:
 
     def __new__(
             cls,
-            city: str | None = None,
-            state: str | None = None,
-            state_id: str | None = None,
+            city_name: str | None = None,
+            country_name: str | None = None,
+            country_code: str | None = None,
+            region_name: str | None = None,
+            region_code: str | None = None,
             alias: str | None = None,
             latitude: str | None = None,
             longitude: str | None = None,
@@ -311,6 +322,8 @@ class PyDateRange:
 
     def __new__(cls, start: date, end: date) -> PyDateRange: ...
 
+    def annualized(self) -> List[PyDateRange]: ...
+
     def contains(self, d: date) -> bool: ...
 
     def is_one_day(self) -> bool: ...
@@ -349,28 +362,35 @@ class PyHistorySummaries:
 
 class PyLocationFilter:
     @property
+    def alias(self) -> str | None: ...
+
+    @alias.setter
+    def alias(self, str) -> None: ...
+
+    @property
     def city(self) -> str | None: ...
 
     @city.setter
     def city(self, str) -> None: ...
 
     @property
-    def state(self) -> str | None: ...
+    def region(self) -> str | None: ...
 
-    @state.setter
-    def state(self, str) -> None: ...
+    @region.setter
+    def region(self, str) -> None: ...
 
     @property
-    def name(self) -> str | None: ...
+    def country(self) -> str | None: ...
 
-    @name.setter
-    def name(self, str) -> None: ...
+    @country.setter
+    def country(self, str) -> None: ...
 
     def __new__(
             cls,
+            alias: str | None = None,
             city: str | None = None,
-            state: str | None = None,
-            name: str | None = None,
+            region: str | None = None,
+            country: str | None = None,
     ) -> PyLocationFilter: ...
 
 
@@ -395,16 +415,16 @@ class PyCityFilter:
     def name(self, str) -> None: ...
 
     @property
-    def state(self) -> str | None: ...
+    def region(self) -> str | None: ...
 
-    @state.setter
-    def state(self, str) -> None: ...
+    @region.setter
+    def region(self, str) -> None: ...
 
     @property
-    def zip_code(self) -> str | None: ...
+    def country(self) -> str | None: ...
 
-    @zip_code.setter
-    def zip_code(self, str) -> None: ...
+    @country.setter
+    def country(self, str) -> None: ...
 
     @property
     def limit(self) -> int: ...
@@ -415,8 +435,8 @@ class PyCityFilter:
     def __new__(
             cls,
             name: str | None = None,
-            state: str | None = None,
-            zip_code: str | None = None,
+            region: str | None = None,
+            country: str | None = None,
             limit: int | None = None,
     ) -> PyCityFilter: ...
 

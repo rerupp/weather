@@ -2,7 +2,6 @@ import inspect
 import logging as log
 from datetime import datetime
 from enum import IntFlag
-from time import daylight
 
 import pytz
 from py_weather_lib import (PyDailyHistories, PyDateRange, PyHistory, PyLocationFilter, PyWeatherData)
@@ -347,7 +346,7 @@ class HistoryReport(Horizontal):
             table.categories = self._categories
 
     def _get_histories(self) -> PyDailyHistories:
-        return self._weather_data.get_daily_histories(PyLocationFilter(name=self._alias), self._date_range)
+        return self._weather_data.get_daily_histories(PyLocationFilter(city=self._alias), self._date_range)
 
 
 if __name__ == "__main__":

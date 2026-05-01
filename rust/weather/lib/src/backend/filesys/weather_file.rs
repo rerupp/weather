@@ -12,7 +12,7 @@ macro_rules! error {
 }
 
 /// The manager of a file within the weather directory.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct WeatherFile {
     /// The file name within the weather directory.
     pub filename: String,

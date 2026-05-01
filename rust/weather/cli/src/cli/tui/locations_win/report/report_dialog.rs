@@ -65,9 +65,9 @@ impl ReportDialog {
                 .with_auto_select(true),
                 ReportWindow::default(),
             )
-            .with_title(format!(" {} Weather History", location.name)),
+            .with_title(format!(" {}, {} Weather History", location.city_name, location.region_code)),
             criteria: CriteriaDialog::new(),
-            location_name: location.name.clone(),
+            location_name: location.to_string(),
             location_alias: location.alias.clone(),
             weather_data,
         }
@@ -88,7 +88,7 @@ impl ReportDialog {
             }
             Ok(date_range) => {
                 self.criteria.set_active(false);
-                let filter = LocationFilter::name(&self.location_name);
+                let filter = LocationFilter::alias(&self.location_alias);
                 match self.weather_data.get_daily_histories(filter, date_range) {
                     Err(error_message) => {
                         let message = format!("Failed to get daily history ({}).", error_message);

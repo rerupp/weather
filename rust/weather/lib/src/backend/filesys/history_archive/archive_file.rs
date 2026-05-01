@@ -221,10 +221,12 @@ impl ArchiveFile {
 pub struct ArchiveMetadata {
     /// The date associated with the history file in the archive.
     pub date: NaiveDate,
-    /// The size of the file in the archive.
+    /// The size of the file contents in the archive.
     pub compressed_size: u64,
-    /// The actual size of the file.
+    /// The size of the file on disk.
     pub size: u64,
+    /// The size of the zip file in the archive (header + content).
+    pub zipfile_size: u64,
 }
 impl ArchiveMetadata {
     /// Create a new instance of the metadata.
@@ -235,7 +237,14 @@ impl ArchiveMetadata {
     /// * `zipfile` is the archive zip file.
     ///
     pub(self) fn new<'r, R: Read>(date: &NaiveDate, zipfile: &'r ZipFile<R>) -> Self {
-        Self { date: date.clone(), compressed_size: zipfile.compressed_size(), size: zipfile.size() }
+        let compressed_size = zipfile.compressed_size();
+        Self {
+            date: date.clone(),
+            compressed_size,
+            size: zipfile.size(),
+            // each ZipFile has 30 bytes worth of metadata + the filename len
+            zipfile_size: compressed_size + 30 + zipfile.name().len() as u64,
+        }
     }
 }
 impl std::fmt::Display for ArchiveMetadata {

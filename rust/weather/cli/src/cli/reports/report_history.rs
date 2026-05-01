@@ -359,7 +359,7 @@ pub mod json {
                 values.push(value);
             }
             let json = json!({
-                "location": daily_histories.location.name,
+                "location": daily_histories.location.to_string(),
                 "type": Value::String("daily_history".to_string()),
                 "history": json![values],
             });

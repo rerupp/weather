@@ -63,6 +63,10 @@ pub trait Control {
     /// - `key_event` is guaranteed to be a [key press](KeyEventKind::Press) event.
     ///
     fn key_pressed(&mut self, key_event: &KeyEvent) -> ControlFlow<ControlResult>;
+    /// Checks to see if the control should be considered readonly
+    fn is_readonly(&self) -> bool {
+        false
+    }
 }
 
 /// The API used for [date](DateEditor) and [text][TextEditor] field editors.
@@ -139,7 +143,7 @@ pub trait ControlGroup<T: Control> {
 /// The result of a control event.
 #[derive(Debug, PartialOrd, PartialEq)]
 pub enum ControlResult {
-    /// Indicate the event is cancelled.
+    /// Indicate the event is canceled.
     Cancel,
     /// Indicate the event has consumed.
     Continue,
@@ -181,71 +185,77 @@ pub fn hotkey_spans(text: &str, hotkey: char, text_style: Style, hotkey_style: S
     }
 }
 
-/// For a collection of controls, find the currently active control and set the next control active.
+/// For a collection of controls, find the currently active control and set the next control
+/// that is not readonly active.
 ///
 /// # Arguments
 ///
 /// - `controls` is the collection that will be updated
 /// - `wrap` is used to set the first control in the collection active if the last control is currently active.
 ///
-fn next_control(mut controls: Vec<&mut impl Control>, wrap: bool) -> bool {
-    let controls_len = controls.len();
-    match controls_len < 2 {
-        true => false,
-        false => match controls.last().unwrap().is_active() {
-            true => {
-                if wrap {
-                    controls.first_mut().unwrap().set_active(true);
-                    controls.last_mut().unwrap().set_active(false);
-                }
-                wrap
+fn next_control(controls: Vec<&mut impl Control>, wrap: bool) -> bool {
+    // filter out the readonly controls
+    let mut controls = controls.into_iter()
+        .filter(|control| !control.is_readonly())
+        .collect::<Vec<_>>();
+    if controls.len() < 2 {
+        return false;
+    }
+    // check to see if moving from last to first
+    if controls.last().unwrap().is_active() {
+        if wrap {
+            controls.first_mut().unwrap().set_active(true);
+            controls.last_mut().unwrap().set_active(false);
+        }
+        wrap
+    } else {
+        let mut set_active = false;
+        // set the next control active
+        for idx in 0..controls.len() - 1 {
+            if controls[idx].is_active() {
+                controls[idx].set_active(false);
+                controls[idx + 1].set_active(true);
+                set_active = true;
+                break;
             }
-            false => {
-                for idx in 0..controls_len - 1 {
-                    if controls[idx].is_active() {
-                        controls[idx].set_active(false);
-                        controls[idx + 1].set_active(true);
-                        break;
-                    }
-                }
-                // assumes there is always an active control
-                true
-            }
-        },
+        }
+        set_active
     }
 }
 
-/// For a collection of controls, find the currently active control and set the previous control active.
+/// For a collection of controls, find the currently active control and set the previous control
+/// that is not readonly active.
 ///
 /// # Arguments
 ///
 /// - `controls` is the collection that will be updated.
 /// - `wrap` is used to set the last control in the collection active if the first control is currently active.
 ///
-fn previous_control(mut controls: Vec<&mut impl Control>, wrap: bool) -> bool {
-    let controls_len = controls.len();
-    match controls_len < 2 {
-        true => false,
-        false => match controls.first().unwrap().is_active() {
-            true => {
-                if wrap {
-                    controls.first_mut().unwrap().set_active(false);
-                    controls.last_mut().unwrap().set_active(true);
-                }
-                wrap
+fn previous_control(controls: Vec<&mut impl Control>, wrap: bool) -> bool {
+    // filter out the readonly controls
+    let mut controls = controls.into_iter()
+        .filter(|control| !control.is_readonly())
+        .collect::<Vec<_>>();
+    if controls.len() < 2 {
+        return false;
+    }
+    if controls.first().unwrap().is_active() {
+        if wrap {
+            controls.first_mut().unwrap().set_active(false);
+            controls.last_mut().unwrap().set_active(true);
+        }
+        wrap
+    } else {
+        let mut set_active = false;
+        for idx in 1..controls.len() {
+            if controls[idx].is_active() {
+                controls[idx].set_active(false);
+                controls[idx - 1].set_active(true);
+                set_active = true;
+                break;
             }
-            false => {
-                for idx in 1..controls_len {
-                    if controls[idx].is_active() {
-                        controls[idx].set_active(false);
-                        controls[idx - 1].set_active(true);
-                        break;
-                    }
-                }
-                // assumes there is always an active control
-                true
-            }
-        },
+        }
+        set_active
     }
 }
 
@@ -289,7 +299,7 @@ mod tests {
         testcase[0].0 = true;
         assert!(!next_control(as_mut_refs!(testcase), false));
         assert!(!next_control(as_mut_refs!(testcase), true));
-        // setup a wrapping scenario
+        // set up a wrapping scenario
         let mut testcase = vec![TestControl(false), TestControl(false), TestControl(true)];
         assert!(!next_control(as_mut_refs!(testcase), false));
         assert!(!testcase[0].is_active());
@@ -314,7 +324,7 @@ mod tests {
         testcase[0].0 = true;
         assert!(!previous_control(as_mut_refs!(testcase), false));
         assert!(!previous_control(as_mut_refs!(testcase), true));
-        // setup a wrapping scenario
+        // set up a wrapping scenario
         let mut testcase = vec![TestControl(true), TestControl(false), TestControl(false)];
         assert!(!previous_control(as_mut_refs!(testcase), false));
         assert!(testcase[0].is_active());

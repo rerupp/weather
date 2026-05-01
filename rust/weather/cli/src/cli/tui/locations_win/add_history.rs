@@ -90,12 +90,12 @@ impl AddHistory {
                                     history_criteria.set_message(MessageStyle::Error, parse_error);
                                 }
                                 Ok(date_range) => {
-                                    let filter = LocationFilter::name(&self.location.alias);
+                                    let filter = LocationFilter::alias(&self.location.alias);
                                     match self.weather_data.fetch_daily_histories(filter, date_range) {
                                         Ok(future) => {
                                             history_progress.replace(ProgressDialog::new(format!(
                                                 "Downloading weather history for {}",
-                                                self.location.name
+                                                self.location
                                             )));
                                             self.histories_future.replace(Some(future));
                                             break_event!(DialogResult::Poll(Some(20)))?

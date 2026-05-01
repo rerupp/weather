@@ -166,7 +166,7 @@ class HistoriesDates(WeatherView):
         history_report = HistoryReport(self._parent, location_history_dates.location.alias, self._weather_data,
                                        date_range)
         if history_report:
-            self._add_tab(f'{location_history_dates.location.name}', history_report)
+            self._add_tab(f'{location_history_dates.location}', history_report)
 
     def _history_graph(self):
         """
@@ -384,7 +384,7 @@ class HistoryDatesRow:
 
     def __init__(self, history_dates: PyHistoryDates):
         self.iid = history_dates.location.alias
-        self.name = history_dates.location.name
+        self.name = f"{history_dates.location.city_name} ({history_dates.location.region_code})"
         self.history_dates = [HistoryDatesRow.__describe_date_range(dr) for dr in history_dates.history_dates]
 
     @staticmethod

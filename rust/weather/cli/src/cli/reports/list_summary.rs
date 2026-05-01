@@ -36,11 +36,13 @@ pub mod text {
         ///
         // pub fn generate(location_histories: Vec<HistorySummaries>, writer: &mut impl Write) -> Result<()> {
         pub fn generate(&self, location_histories: Vec<HistorySummaries>) -> ReportSheet {
-            let mut report = ReportSheet::new(vec![layout!(<), layout!(>), layout!(>), layout!(>), layout!(>)]);
+            let mut report =
+                ReportSheet::new(vec![layout!(<), layout!(<), layout!(>), layout!(>), layout!(>), layout!(>)]);
             report.add_row(vec![
+                header!(^ "Alias"),
                 header!(^ "Location"),
+                header!(^ "Count"),
                 header!(^ "Overall Size"),
-                header!(^ "History Count"),
                 header!(^ "History Size"),
                 header!(^ "Store Size"),
             ]);
@@ -52,27 +54,29 @@ pub mod text {
             let mut total_history_count = 0;
             let mut total_raw_size = 0;
             let mut total_compressed_size = 0;
-            for location_history_summary in location_histories {
-                let overall_size = location_history_summary.overall_size.unwrap_or(0);
-                let raw_size = location_history_summary.raw_size.unwrap_or(0);
-                let compressed_size = location_history_summary.store_size.unwrap_or(0);
+            for summary in location_histories {
+                let overall_size = summary.overall_size.unwrap_or(0);
+                let raw_size = summary.raw_size.unwrap_or(0);
+                let compressed_size = summary.store_size.unwrap_or(0);
                 report.add_row(vec![
-                    toolslib::text!(location_history_summary.location.name),
+                    toolslib::text!(&summary.location.alias),
+                    toolslib::text!(format!("{}, {}", summary.location.city_name, summary.location.region_code)),
+                    toolslib::text!(commafy(summary.count)),
                     toolslib::text!(kib!(overall_size, 0)),
-                    toolslib::text!(commafy(location_history_summary.count)),
                     toolslib::text!(kib!(raw_size, 0)),
                     toolslib::text!(kib!(compressed_size, 0)),
                 ]);
                 total_size += overall_size;
-                total_history_count += location_history_summary.count;
+                total_history_count += summary.count;
                 total_raw_size += raw_size;
                 total_compressed_size += compressed_size;
             }
             report.add_row((0..columns).into_iter().map(|_| toolslib::text!(+ "=")).collect());
             report.add_row(vec![
                 header!("Total"),
-                toolslib::text!(kib!(total_size, 0)),
+                toolslib::text!(""),
                 toolslib::text!(commafy(total_history_count)),
+                toolslib::text!(kib!(total_size, 0)),
                 toolslib::text!(kib!(total_raw_size, 0)),
                 toolslib::text!(kib!(total_compressed_size, 0)),
             ]);
@@ -85,6 +89,7 @@ pub mod csv {
     /// The list summary CSV based reporting implementation.
     ///
     use super::*;
+
     extern crate csv as csv_lib;
 
     #[derive(Debug, Default)]
@@ -108,7 +113,7 @@ pub mod csv {
                 csv_write_record!(
                     writer,
                     &[
-                        location_history_summary.location.name,
+                        location_history_summary.location.to_string(),
                         location_history_summary.count.to_string(),
                         raw_size.to_string(),
                         compressed_size.to_string(),
@@ -151,7 +156,7 @@ pub mod json {
                 .into_iter()
                 .map(|location_history_summary| {
                     json!({
-                        "location": location_history_summary.location.name,
+                        "location": location_history_summary.location.to_string(),
                         "entries": location_history_summary.count,
                         "entries_size": location_history_summary.raw_size.map_or(0, |v| v),
                         "compressed_size": location_history_summary.store_size.map_or(0, |v| v),

@@ -70,6 +70,10 @@ impl TextEditor {
     ///
     pub fn with_text(mut self, text: impl ToString) -> Self {
         self.text = text.to_string();
+        match self.width {
+            None => self.position = self.text.len() as u16,
+            Some(width) => self.position = cmp::min(width, self.text.len() as u16),
+        }
         self
     }
     /// Move the current position to the first character, [ControlResult::NotAllowed] will be returned

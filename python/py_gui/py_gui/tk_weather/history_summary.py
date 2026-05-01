@@ -84,7 +84,7 @@ class SummaryView(tk.Frame):
         summaries: List[Summary] = []
         for history_summaries in content:
             summaries.append(Summary(
-                name=history_summaries.location.name,
+                name=f"{history_summaries.location.city_name} ({history_summaries.location.region_code})",
                 overall_size=f'{history_summaries.overall_size / 1024:,.1f} KiB',
                 count=f'{history_summaries.count:,}',
                 raw_size=f'{history_summaries.raw_size / 1024:,.1f} KiB',

@@ -98,12 +98,15 @@ pub fn command() -> Command {
     ];
     Command::new(COMMAND_NAME)
         .about("Generate a weather history report for a location.")
-        .long_about(r"Generate a weather history report for a location.
+        .long_about(
+            r"Generate a weather history report for a location.
 
 The START and END dates can be specified using any of the following patterns.
 
   YYYY, MMM-YYYY, MM-YYYY, MM/YYYY, YYYY-MM, YYYY/MM
-  MM-DD-YYYY, MM/DD/YYYY, YYYY-MM-DD or YYYY/MM/DD")
+  MM-DD-YYYY, MM/DD/YYYY, YYYY-MM-DD, YYYY/MM/DD
+  MMM-DD-YYYY or MMM/DD/YYYY",
+        )
         .args(cmd_args)
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
@@ -119,8 +122,8 @@ The START and END dates can be specified using any of the following patterns.
 ///
 pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
     // create the location filter
-    let location = args.get_one::<String>(LOCATION).map(|l| l).unwrap();
-    let filter = LocationFilter::default().with_name(location);
+    let location_name = args.get_one::<String>(LOCATION).map(|l| l).unwrap();
+    let filter = LocationFilter::alias(location_name);
 
     // get the report dates
     let start = args.get_one::<String>(START).unwrap();

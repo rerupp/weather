@@ -1,6 +1,6 @@
 //! The [filesys] module library.
 
-use super::{err, error};
+use super::err;
 use crate::{
     backend::{
         filesys::{
@@ -25,8 +25,8 @@ pub fn add_daily_history(
 ) -> crate::Result<Vec<ArchiveMetadata>> {
     // make sure the location exists before adding any histories
     let location = &daily_histories.location;
-    if Locations::open(weather_dir)?.get(Some(vec![LocationFilter::name(&location.alias)]))?.count() == 0 {
-        err!("The location {} ({}) was not found.", location.name, location.alias)?;
+    if Locations::open(weather_dir)?.get(Some(vec![LocationFilter::alias(&location.alias)]))?.count() == 0 {
+        err!("The location {location} was not found.")?;
     }
 
     // the history archive will make sure there are no duplicates added and issue log warnings
@@ -34,144 +34,6 @@ pub fn add_daily_history(
     let archive = HistoryArchive::open(&location.alias, archive_file)?;
     let additions_metadata = archive.append(&daily_histories.histories)?;
     Ok(additions_metadata)
-}
-
-/// The [db] module uses this function when it reloads weather history for a location.
-///
-/// # Arguments
-///
-/// * `weather_dir` is the weather history data directory.
-/// * `alias` is the location alias name.
-///
-pub fn history_contents(
-    weather_dir: &WeatherDir,
-    alias: &str,
-) -> crate::Result<impl Iterator<Item = (ArchiveMetadata, History)>> {
-    HistoryArchive::metadata_and_history_iter(alias, weather_dir.archive(alias))
-}
-
-pub use history_counts::get_history_counts;
-mod history_counts {
-    //! The [db] module uses this API to get location history counts.
-    //!
-    use super::*;
-    use crate::backend::filesys::histories_reader::{generate_history_reader, HistoriesReader, HistoryReader};
-    use std::thread;
-
-    /// The API that gets [Location] history counts.
-    ///
-    /// # Arguments
-    ///
-    /// * `weather_dir` is the weather data directory.
-    /// * `filters` optionally restricts which location counts will be returned.
-    ///
-    pub fn get_history_counts(
-        weather_dir: &WeatherDir,
-        filters: Option<Vec<LocationFilter>>,
-    ) -> crate::Result<Vec<(Location, usize)>> {
-        crate::log_elapsed_time!(trace, "get_history_counts");
-        let locations = Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>();
-        let mut history_counts =
-            HistoriesReader::new(weather_dir, locations, 16, HistoryCounter::create).collect::<Vec<_>>();
-        history_counts.sort_unstable_by(|lhs, rhs| lhs.location.name.cmp(&rhs.location.name));
-        Ok(history_counts.into_iter().map(|history_count| (history_count.location, history_count.count)).collect())
-    }
-
-    /// The history data mined by the reader.
-    ///
-    struct HistoryCount {
-        /// The location properties.
-        pub location: Location,
-        /// The count of daily weather histories.
-        pub count: usize,
-    }
-
-    generate_history_reader!(HistoryCounter, HistoryCount);
-    impl HistoryReader<HistoryCount> for HistoryCounter {
-        fn read_archive(&self) {
-            crate::log_elapsed_time!(format!("{:?} read_archive", thread::current().id()));
-            while let Some(item) = self.queue.take() {
-                log::trace!("{:?} counting {}", thread::current().id(), item.location.name);
-                let location = item.location;
-                let archive_file = item.file;
-                match HistoryArchive::open(&location.alias, archive_file) {
-                    Err(error) => {
-                        log::error!("Error opening archive: {:?}", error);
-                    }
-                    Ok(archive) => {
-                        let data = HistoryCount { location, count: archive.history_count() };
-                        if let Err(error) = self.sender.send(data) {
-                            log::error!("Failed to send history counts for {}.", error.0.location.name);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub use history_contents::get_history_contents;
-mod history_contents {
-    //! The [db] module uses this API to get the contents of weather history archives.
-    //!
-    use super::*;
-    use crate::{
-        backend::filesys::{
-            histories_reader::{generate_history_reader, HistoriesReader, HistoryReader},
-            history_archive::ArchiveMetadata,
-        },
-        prelude::History,
-    };
-    use std::thread;
-
-    /// The archive contents.
-    ///
-    type ArchiveContents = (ArchiveMetadata, History);
-
-    /// Get an iterator that reads the contents of weather history archives. The order of
-    /// returned weather history content is not guaranteed to be grouped by location.
-    ///
-    /// # Arguments
-    ///
-    /// * `weather_dir` is the weather data directory.
-    /// * `filters` optionally restricts which location counts will be returned.
-    /// * `max_threads` limits the number of threads used (default is 16).
-    ///
-    pub fn get_history_contents(
-        weather_dir: &WeatherDir,
-        filters: Option<Vec<LocationFilter>>,
-        max_threads: Option<usize>,
-    ) -> crate::Result<impl Iterator<Item = ArchiveContents>> {
-        crate::log_elapsed_time!(trace, "get_history_contents");
-        let locations = Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>();
-        let max_threads = max_threads.unwrap_or(16);
-        Ok(HistoriesReader::new(weather_dir, locations, max_threads, HistoryContentsReader::create))
-    }
-
-    generate_history_reader!(HistoryContentsReader, ArchiveContents);
-    impl HistoryReader<ArchiveContents> for HistoryContentsReader {
-        fn read_archive(&self) {
-            crate::log_elapsed_time!(format!("{:?} HistoryReader read_archive", thread::current().id()));
-            while let Some(item) = self.queue.take() {
-                log::trace!("{:?} mining histories for {}", thread::current().id(), item.location.name);
-                let location = item.location;
-                let archive_file = item.file;
-                match HistoryArchive::metadata_and_history_iter(&location.alias, archive_file) {
-                    Err(error) => {
-                        log::error!("Error getting history contents: {:?}", error);
-                    }
-                    Ok(contents) => {
-                        for content in contents {
-                            if let Err(error) = self.sender.send(content) {
-                                let (_, history) = error.0;
-                                log::error!("Error sending {} content for {}.", location.name, history.date)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// This is used by [Backend] implementations to add a location to the filesystem.
@@ -219,5 +81,225 @@ pub fn update_location(weather_dir: &WeatherDir, location: Location) -> crate::R
 ///
 #[inline]
 pub fn get_locations(weather_dir: &WeatherDir, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<Location>> {
-    Ok(Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>())
+    // the document should be in location order however you can't be sure
+    let mut locations = Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>();
+    locations.sort_unstable();
+    Ok(locations)
+}
+
+/// The [db] module uses this function when it reloads weather history for a single location.
+///
+/// # Arguments
+///
+/// * `weather_dir` is the weather history data directory.
+/// * `alias` is the location alias name.
+///
+pub fn history_contents(
+    weather_dir: &WeatherDir,
+    alias: &str,
+) -> crate::Result<impl Iterator<Item = (ArchiveMetadata, History)>> {
+    HistoryArchive::metadata_and_history_iter(alias, weather_dir.archive(alias))
+}
+
+pub mod history_contents {
+    //! The [db] module uses this API to get the contents of weather history archives for multiple
+    //! locations.
+    //!
+    use super::*;
+    use crate::backend::filesys::archives_iterator::ArchivesReaderCtx;
+    use crate::{
+        backend::filesys::{
+            archives_iterator::{ArchivesIterator, ArchivesReader},
+            history_archive::ArchiveMetadata,
+        },
+        prelude::History,
+    };
+    use std::sync::mpsc::Sender;
+
+    /// The items returned by the history contents iterator.
+    pub type HistoryContents = (ArchiveMetadata, History);
+
+    /// Return an iterator that reads the contents of weather history archives. The order of
+    /// returned weather history content is not guaranteed to be grouped by location.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `filters` optionally restricts which location counts will be returned.
+    /// * `max_threads` limits the number of threads used (default is 16).
+    ///
+    pub fn get(
+        weather_dir: &WeatherDir,
+        filters: Option<Vec<LocationFilter>>,
+        max_threads: Option<usize>,
+    ) -> crate::Result<impl Iterator<Item = HistoryContents>> {
+        crate::log_elapsed_time!(trace, "history_contents::get()");
+        let locations = Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>();
+        let workers = max_threads.unwrap_or(16);
+        Ok(ArchivesIterator::new(weather_dir, locations, workers, |sender| Box::new(Reader(sender))))
+    }
+
+    struct Reader(Sender<HistoryContents>);
+    impl ArchivesReader<HistoryContents> for Reader {
+        fn read_archive(&self, ctx: ArchivesReaderCtx) {
+            match HistoryArchive::metadata_and_history_iter(&ctx.location.alias, ctx.file) {
+                Err(error) => log::error!("Error getting history contents: {:?}", error),
+                Ok(contents) => {
+                    for content in contents {
+                        if let Err(error) = self.0.send(content) {
+                            let (_, history) = error.0;
+                            log::error!("Error sending {} content for {}.", ctx.location, history.date)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub mod history_counts {
+    //! The [db] module uses this API to get location history counts.
+    //!
+    use super::*;
+    use crate::backend::filesys::archives_iterator::{ArchivesIterator, ArchivesReader, ArchivesReaderCtx};
+    use std::sync::mpsc::Sender;
+
+    /// The type of data returned in the collection of history counts.
+    ///
+    pub type HistoryCount = (Location, usize);
+
+    /// The API used by the that gets [Location] history counts.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `filters` optionally restricts which location counts will be returned.
+    ///
+    pub fn get(weather_dir: &WeatherDir, filters: Option<Vec<LocationFilter>>) -> crate::Result<Vec<HistoryCount>> {
+        crate::log_elapsed_time!(info, "history_counts::get()");
+        let locations = Locations::open(weather_dir)?.get(filters)?.collect::<Vec<_>>();
+        let mut history_counts =
+            ArchivesIterator::new(weather_dir, locations, 16, |sender| Box::new(Reader(sender))).collect::<Vec<_>>();
+        history_counts.sort_unstable_by(|(lhs, _), (rhs, _)| lhs.cmp(rhs));
+        Ok(history_counts)
+    }
+    struct Reader(Sender<HistoryCount>);
+    impl ArchivesReader<HistoryCount> for Reader {
+        fn read_archive(&self, ctx: ArchivesReaderCtx) {
+            match HistoryArchive::open(&ctx.location.alias, ctx.file) {
+                Err(error) => log::error!("Error opening location '{}' archive: {:?}", ctx.location, error),
+                Ok(archive) => {
+                    if let Err(error) = self.0.send((ctx.location, archive.history_count())) {
+                        let (location, _) = error.0;
+                        log::error!("Failed to send history counts for {location}.");
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub mod history_dates {
+    //! This is used by [Backend] implementations to get location history dates..
+    //!
+    use super::*;
+    use crate::{
+        backend::filesys::archives_iterator::{ArchivesIterator, ArchivesReader, ArchivesReaderCtx},
+        entities::HistoryDates,
+    };
+    use std::sync::mpsc::Sender;
+
+    /// The API that gets history dates for a collection of locations.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `filters` optionally restricts which location counts will be returned.
+    ///
+    pub fn get(
+        weather_dir: &WeatherDir,
+        locations: Vec<Location>,
+        max_threads: usize,
+    ) -> crate::Result<Vec<HistoryDates>> {
+        crate::log_elapsed_time!(trace, "get_history_dates");
+        let mut history_dates =
+            ArchivesIterator::new(weather_dir, locations, max_threads, |sender| Box::new(Reader(sender)))
+                .collect::<Vec<_>>();
+        history_dates.sort_unstable_by(|lhs, rhs| lhs.location.cmp(&rhs.location));
+        Ok(history_dates)
+    }
+
+    struct Reader(Sender<HistoryDates>);
+    impl ArchivesReader<HistoryDates> for Reader {
+        fn read_archive(&self, ctx: ArchivesReaderCtx) {
+            match HistoryArchive::open(&ctx.location.alias, ctx.file) {
+                Err(error) => log::error!("Could not open history archive for {}: {error}", ctx.location),
+                Ok(archive) => match archive.dates(None) {
+                    Err(error) => log::error!("Could not get history dates for {}: {error}", ctx.location),
+                    Ok(dates) => {
+                        let history_dates = HistoryDates { location: ctx.location, history_dates: dates.date_ranges };
+                        if let Err(error) = self.0.send(history_dates) {
+                            log::error!("Failed to send history dates for {}: {}", error.0.location, error);
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+pub mod history_summaries {
+    //! Use the [ArchivesIterator] to mine the history summaries from the archives.
+    //!
+    use super::*;
+    use crate::{
+        backend::filesys::archives_iterator::{ArchivesIterator, ArchivesReader, ArchivesReaderCtx},
+        entities::HistorySummaries,
+    };
+    use std::sync::mpsc::Sender;
+
+    /// The API that gets a summary of weather history data for a collection of locations.
+    ///
+    /// # Arguments
+    ///
+    /// * `weather_dir` is the weather data directory.
+    /// * `locations` determines which history summaries to get.
+    /// * `readers` provides a limit on how many readers to use.
+    ///
+    pub fn get(
+        weather_dir: &WeatherDir,
+        locations: Vec<Location>,
+        readers: usize,
+    ) -> crate::Result<Vec<HistorySummaries>> {
+        crate::log_elapsed_time!(trace, "get_history_summaries");
+        let mut history_summaries =
+            ArchivesIterator::new(weather_dir, locations, readers, |sender| Box::new(Reader(sender)))
+                .collect::<Vec<_>>();
+        history_summaries.sort_unstable_by(|lhs, rhs| lhs.location.cmp(&rhs.location));
+        Ok(history_summaries)
+    }
+
+    struct Reader(Sender<HistorySummaries>);
+    impl ArchivesReader<HistorySummaries> for Reader {
+        fn read_archive(&self, ctx: ArchivesReaderCtx) {
+            match HistoryArchive::open(&ctx.location.alias, ctx.file) {
+                Err(error) => log::error!("Could not open history archive for {}: {error}", ctx.location),
+                Ok(archive) => match archive.summary() {
+                    Err(error) => log::error!("Could not read history summary for {}: {error}", ctx.location),
+                    Ok(history_summary) => {
+                        let history_summaries = HistorySummaries {
+                            location: ctx.location,
+                            count: history_summary.count,
+                            overall_size: history_summary.overall_size,
+                            raw_size: history_summary.raw_size,
+                            store_size: history_summary.compressed_size,
+                        };
+                        if let Err(error) = self.0.send(history_summaries) {
+                            log::error!("Failed to send history summary for {}: {}", error.0.location, error);
+                        }
+                    }
+                },
+            }
+        }
+    }
 }

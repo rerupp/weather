@@ -10,14 +10,17 @@ mod drop;
 mod init;
 mod reload;
 mod show;
-mod us_cities;
+mod cities;
+mod compress;
 
 #[derive(Debug)]
 pub struct Admin;
 impl Admin {
     /// The command name.
     pub const NAME: &'static str = "admin";
+
     /// Create the sub-command.
+    ///
     pub fn get() -> Command {
         Command::new(Self::NAME)
             .about("The weather data administration tool.")
@@ -29,22 +32,22 @@ impl Admin {
             .subcommand(drop::command())
             .subcommand(show::command())
             .subcommand(copy::command())
+            .subcommand(compress::command())
             .subcommand(reload::command())
             .subcommand(config::command())
-            .subcommand(us_cities::command())
+            .subcommand(cities::command())
     }
 
     /// Executes the command.
     ///
     /// # Arguments
     ///
-    /// * `weather_data` is the weather data API.
-    /// * `args` contains the report history command arguments.
+    /// * `configuration` holds the weather data configuration properties.
+    /// * `args` has the parsed command arguments.
+    ///
     pub fn run(configuration: Configuration, mut args: ArgMatches) -> cli::Result<()> {
         let (name, cmd_args) = args.remove_subcommand().expect("There was no subcommand available to run");
-        if name == us_cities::COMMAND_NAME {
-            us_cities::execute(configuration, cmd_args)
-        } else if name == config::COMMAND_NAME {
+        if name == config::COMMAND_NAME {
             config::execute(configuration, cmd_args)
         } else {
             let weather_admin = WeatherAdmin::try_from(configuration)?;
@@ -55,6 +58,8 @@ impl Admin {
                 (show::COMMAND_NAME, cmd_args) => show::execute(&weather_admin, cmd_args),
                 (reload::COMMAND_NAME, cmd_args) => reload::execute(&weather_admin, cmd_args),
                 (copy::COMMAND_NAME, cmd_args) => copy::execute(&weather_admin, cmd_args),
+                (compress::COMMAND_NAME, cmd_args) => compress::execute(&weather_admin, cmd_args),
+                (cities::COMMAND_NAME, cmd_args) => cities::execute(&weather_admin, cmd_args),
                 _ => unreachable!("Admin command should not be here..."),
             }
         }

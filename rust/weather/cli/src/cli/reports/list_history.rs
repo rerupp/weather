@@ -9,8 +9,6 @@ pub mod text {
     //! The list history text based reporting implementation.
     //!
     use super::*;
-    use chrono::NaiveDate;
-    use std::fmt::Write;
 
     /// The metadata controlling the report appearance.
     #[derive(Debug, Default)]
@@ -27,29 +25,6 @@ pub mod text {
             self.title_separator = true;
             self
         }
-        /// Use a custom date format.
-        ///
-        /// # Arguments
-        ///
-        /// - `date_format` describes the format of printed dates.
-        ///
-        #[allow(unused)]
-        pub fn with_date_format(mut self, date_format: impl ToString) -> Self {
-            let date_format = date_format.to_string();
-            let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-            // write will error if the format is bad
-            let mut formatted_epoch = String::new();
-            match write!(formatted_epoch, "{}", epoch.format(&date_format)) {
-                Ok(_) => {
-                    self.date_format.replace(date_format);
-                }
-                Err(_) => {
-                    // right now formats are all hard coded so it's a dev problem
-                    debug_assert!(false, "Bad date format '{}'!!!", date_format);
-                }
-            }
-            self
-        }
         /// Generates the locations_win history text based report.
         ///
         /// # Arguments
@@ -57,14 +32,19 @@ pub mod text {
         /// * `location_history_dates` - The list of location and history dates that will be reported.
         ///
         pub fn generate(&self, locations_history_dates: Vec<HistoryDates>) -> ReportSheet {
-            let mut report = ReportSheet::new(vec![layout!(<), layout!(^)]);
-            report.add_row(vec![header!(^ "Location"), header!(^ "History Dates")]);
+            let mut report = ReportSheet::new(vec![layout!(<), layout!(<), layout!(^)]);
+            report.add_row(vec![header!(^ "Alias"), header!(^ "Location"), header!(^ "History Dates")]);
             if self.title_separator {
                 report.add_row(text_title_separator!(report.columns()));
             }
             for histories in locations_history_dates {
+                let city_name = format!("{}, {}", histories.location.city_name, histories.location.region_code);
                 if histories.history_dates.is_empty() {
-                    report.add_row(vec![toolslib::text!(histories.location.name), toolslib::text!("None")]);
+                    report.add_row(vec![
+                        toolslib::text!(&histories.location.alias),
+                        toolslib::text!(city_name),
+                        toolslib::text!("None"),
+                    ]);
                 } else {
                     let format = |dr: &DateRange| match &self.date_format {
                         None => dr.to_string(),
@@ -78,11 +58,16 @@ pub mod text {
                     };
                     let history_dates = histories.history_dates;
                     report.add_row(vec![
-                        toolslib::text!(histories.location.name),
+                        toolslib::text!(&histories.location.alias),
+                        toolslib::text!(city_name),
                         toolslib::text!(format(&history_dates[0])),
                     ]);
                     history_dates[1..].into_iter().for_each(|date_range| {
-                        report.add_row(vec![toolslib::text!(""), toolslib::text!(format(date_range))]);
+                        report.add_row(vec![
+                            toolslib::text!(""),
+                            toolslib::text!(""),
+                            toolslib::text!(format(date_range)),
+                        ]);
                     })
                 }
             }
@@ -114,7 +99,7 @@ pub mod csv {
             for location_history_dates in locations_history_dates {
                 for history_range in location_history_dates.history_dates {
                     let (from, to) = history_range.as_iso8601();
-                    csv_write_record!(writer, &[&location_history_dates.location.name, &from, &to]);
+                    csv_write_record!(writer, &[&location_history_dates.location.to_string(), &from, &to]);
                 }
             }
             csv_to_string(writer)
@@ -162,7 +147,7 @@ pub mod json {
                         })
                         .collect();
                     json!({
-                        "location": location_history_dates.location.name,
+                        "location": location_history_dates.location.to_string(),
                         "dates": history_dates,
                     })
                 })

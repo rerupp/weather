@@ -197,7 +197,7 @@ class _Menu(Menu):
         # search
         search = Menu(self, tearoff=0)
         self.add_cascade(label="Search", underline=0, menu=search)
-        search.add_command(label="US Cities", underline=0, command=lambda: generate_event(_MenuEvent.SEARCH_CITIES))
+        search.add_command(label="Cities", underline=0, command=lambda: generate_event(_MenuEvent.SEARCH_CITIES))
 
         # The toplevel view menu
         view = Menu(self, tearoff=0)

@@ -105,6 +105,78 @@ impl FsAdmin {
         }
         result
     }
+
+    /// Compress a locations weather history archive and return the disk space recovered.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` is the location alias name.
+    ///
+    pub fn compress_archive(&self, alias: &str) -> crate::Result<u64> {
+        crate::log_elapsed_time!(&format!("compress_archive({alias}):"));
+
+        // at this point in the stack the location archive should always exist but JIC...
+        let original_file = self.weather_dir.archive(alias);
+        if !original_file.exists() {
+            err!("The source archive for '{alias}' does not exist.")?;
+        }
+
+        // prepare the compressed archive file
+        let compressed_file = original_file.with_extension("cmp");
+        if !compressed_file.exists() {
+            compressed_file.remove()?;
+        }
+
+        // copy the archive
+        let source_archive = HistoryArchive::open(alias, original_file.clone())?;
+        let compressed_archive = HistoryArchive::create(alias, compressed_file.clone())?;
+        let copy_result = source_archive.copy(&compressed_archive);
+
+        // you're done with the history archives so release them
+        drop(source_archive);
+        drop(compressed_archive);
+
+        macro_rules! remove {
+            ($file: ident, $($arg:tt)*) => {
+                if let Err(error) = $file.remove() {
+                    log::error!("{}: {error}", format!($($arg)*));
+                }
+            };
+        }
+
+        // check the result of the copy
+        if copy_result.is_err() {
+            remove!(compressed_file, "Error removing archive {compressed_file} after copy failed");
+            copy_result?;
+        }
+
+        // get the recovered space
+        let size_difference = original_file.size().saturating_sub(compressed_file.size());
+
+        // move the original file out of the way
+        let backup_file = original_file.with_extension(".bu");
+        let backup_result = original_file.rename(&backup_file);
+        if backup_result.is_err() {
+            // leave the back file alone JIC
+            remove!(compressed_file, "Error removing archive {compressed_file} after backup failed");
+            backup_result?;
+        }
+
+        // rename the compressed archive to the original archive
+        let rename_result = compressed_file.rename(&original_file);
+        if rename_result.is_err() {
+            remove!(compressed_file, "Error removing archive {compressed_file} after rename failed");
+            if let Err(error) = backup_file.rename(&original_file) {
+                // leave the backup where it is so it can be manually restored
+                log::error!("Error restoring archive '{original_file}': {error:?}");
+            }
+            rename_result?;
+        }
+
+        // now get rid of the backup
+        remove!(backup_file, "Error removing archive {backup_file} during cleanup");
+        Ok(size_difference)
+    }
 }
 
 mod internal {

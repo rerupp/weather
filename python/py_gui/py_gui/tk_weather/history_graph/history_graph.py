@@ -68,12 +68,13 @@ class HistoryGraph(WeatherView):
             sw = Stopwatch()
             locations_without_histories = []
             locations_history_dates = []
-            filters = [PyLocationFilter(name=l.alias) for l in locations] if locations else None
+            filters = [PyLocationFilter(city=l.alias) for l in locations] if locations else None
             for location_history_dates in self._weather_data.backend.get_history_dates(PyLocationFilters(filters)):
                 if location_history_dates.history_dates:
                     locations_history_dates.append(location_history_dates)
                 else:
-                    locations_without_histories.append(location_history_dates.location.name)
+                    location = location_history_dates.location
+                    locations_without_histories.append(f"{location.city_name} ({location.region_code})")
             log.info('get locations history dates %s', sw)
 
             # log the locations that do not have histories
@@ -108,7 +109,7 @@ class HistoryGraph(WeatherView):
             locations_daily_histories = []
             date_range = self._graph_selection.date_range
             for location_history_dates in self._locations_history_dates:
-                data_criteria = PyLocationFilter(name=location_history_dates.location.alias)
+                data_criteria = PyLocationFilter(city=location_history_dates.location.alias)
                 locations_daily_histories.append(
                     self._weather_data.backend.get_daily_histories(data_criteria, date_range)
                 )
@@ -168,7 +169,8 @@ class HistoryGraph(WeatherView):
         if len(self._locations_history_dates) > 1:
             name = 'Locations History Graphs'
         else:
-            name = f'{self._locations_history_dates[0].location.name} History Graphs'
+            location = self._locations_history_dates[0].location
+            name = f'{location.city_name} ({location.region_code}) History Graphs'
         self._add_tab(name, self)
 
         log.info('Change View %s', elapsed)

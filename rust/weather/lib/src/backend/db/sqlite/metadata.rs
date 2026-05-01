@@ -6,17 +6,10 @@ use rusqlite::{named_params, Transaction};
 
 pub const TABLE_NAME: &'static str = "metadata";
 
-/// Create a database metadata specific error message.
-macro_rules! error {
-    ($($arg:tt)*) => {
-        crate::Error::from(format!("metadata {}", format!($($arg)*)))
-    }
-}
-
 /// Create an error from the metadata specific error message.
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(error!($($arg)*))
+        Err(crate::Error::from(format!("metadata {}", format!($($arg)*))))
     };
 }
 
@@ -37,7 +30,7 @@ pub fn insert(tx: &Transaction, lid: i64, date: &NaiveDate, store_size: usize, s
     "#;
     let mut stmt = prepare_cached_sql!(tx, METADATA_SQL, "failed to prepare insert SQL")?;
 
-    let params = named_params![":lid": lid,":date": date,":store_size": store_size,":size": size];
+    let params = named_params![":lid": lid,":date": date,":store_size": store_size as i64,":size": size as i64];
     execute_sql!(stmt, params, "failed to insert data for lid={lid} on {date}")?;
     Ok(tx.last_insert_rowid())
 }

@@ -1,0 +1,3 @@
+The uscities.csv and canadacities.csv files come from simplemaps (https://simplemaps.com).
+They are unmodified copies of the "Basic" database and MUST NOT be used outside this
+projects development environment.

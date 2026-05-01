@@ -3,7 +3,6 @@ pub(crate) mod list_history;
 pub(crate) mod list_locations;
 pub(crate) mod list_summary;
 pub(crate) mod report_history;
-pub(crate) mod list_states;
 
 /// Attempts to write a `CSV` record and captures any errors that may occur.
 ///

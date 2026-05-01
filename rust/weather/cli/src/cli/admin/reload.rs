@@ -31,7 +31,7 @@ pub fn command() -> Command {
 ///
 pub fn execute(admin_api: &WeatherAdmin, args: ArgMatches) -> cli::Result<()> {
     // at least one location is required by the command
-    let filters = args.get_many::<String>(CRITERIA).unwrap().map(|alias| LocationFilter::name(alias)).collect();
+    let filters = args.get_many::<String>(CRITERIA).unwrap().map(|alias| LocationFilter::alias(alias)).collect();
     let sync_count = admin_api.reload(filters)?;
     log::info!("{} locations were updated.", sync_count);
     Ok(())

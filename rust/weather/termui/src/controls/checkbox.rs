@@ -9,7 +9,6 @@
 //! and the `Enter` key is pressed.
 //!
 use super::*;
-use ratatui::widgets::block::Title;
 use styles::{CatalogType, StyleCatalog, StyleId};
 
 /// A checkbox will always be this wide.
@@ -351,9 +350,8 @@ impl ControlGroup<Checkbox> for CheckBoxGroup {
                 true => styles.active.get(StyleId::GroupTitle),
                 false => styles.normal.get(StyleId::GroupTitle),
             };
-            let line = Line::from(title.as_str()).style(title_style);
             Block::new()
-                .title(Title::from(line))
+                .title(Line::from(title.as_str()).style(title_style))
                 .title_alignment(self.title_alignment)
                 .borders(Borders::NONE)
                 .render(area, buffer);

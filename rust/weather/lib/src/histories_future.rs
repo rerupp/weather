@@ -55,7 +55,7 @@ pub struct HistoriesFuture {
 }
 impl std::fmt::Debug for HistoriesFuture {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "HistoriesFuture({})", self.location.name)
+        write!(f, "HistoriesFuture({})", self.location)
     }
 }
 impl HistoriesFuture {

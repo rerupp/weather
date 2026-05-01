@@ -114,6 +114,6 @@ mod tests {
         let testcase = WeatherDir::try_from(fixture.to_string()).unwrap();
         let file = testcase.file(filename);
         assert!(file.exists());
-        assert_eq!(file.size(), 664);
+        assert_eq!(file.size(), 899);
     }
 }

@@ -90,7 +90,7 @@ fn describe_document_problem(problem: FilesysDocumentProblem) {
 fn describe_fs_location_problems(problems: Vec<FilesysLocationProblem>) {
     eprintln!("The following location weather history problems were found:");
     for problem in problems {
-        let mut description = format!("  {} history archive", problem.location.name);
+        let mut description = format!("  {} history archive", problem.location);
         if problem.missing_archive {
             if problem.repaired {
                 write!(description, " was missing and has been fixed.").unwrap();
@@ -130,13 +130,13 @@ fn describe_db_location_problems(problems: DbLocationProblems) {
     if let Some(missing_locations) = problems.missing_locations {
         eprintln!("The following locations are missing from the database:");
         for location in missing_locations {
-            eprintln!("  {}", location.name);
+            eprintln!("  {location}");
         }
     }
     if let Some(detached_locations) = problems.detached_locations {
         eprintln!("The following locations were not found in the filesystem:");
         for location in detached_locations {
-            eprintln!("  {}", location.name);
+            eprintln!("  {location}");
         }
     }
 }
@@ -147,17 +147,17 @@ fn describe_db_history_problems(problems: DbHistoryProblems) {
         for problem_details in history_problems {
             if problem_details.db_histories < problem_details.fs_histories {
                 let difference = problem_details.fs_histories - problem_details.db_histories;
-                eprintln!("  {} is missing {difference} histories.", problem_details.location.name);
+                eprintln!("  {} is missing {difference} histories.", problem_details.location);
             } else {
                 let difference = problem_details.db_histories - problem_details.fs_histories;
-                eprintln!("  {} has {difference} more histories.", problem_details.location.name);
+                eprintln!("  {} has {difference} more histories.", problem_details.location);
             }
         }
     }
     if let Some(detached_store) = problems.detached_store {
         eprintln!("The following locations do not exist in the filesystem:");
         for history_summaries in detached_store {
-            eprintln!("  {}", history_summaries.location.name);
+            eprintln!("  {}", history_summaries.location);
         }
     }
 }

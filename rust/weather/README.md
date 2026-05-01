@@ -4,7 +4,7 @@ The weather data project collects and displays historical weather data for some 
 based on its latitude and longitude. Primarily it is for cities in the US but any location
 in the world can be set up and used.
 
-## Why Am I Doing All Of This???
+## Why I Am Doing All Of This
 
 This all began as a way to familiarize myself with Rust. I was looking for some project I could
 dive into to explore the language and decided porting the Python weather project I built several
@@ -29,7 +29,28 @@ so the `weather` repository was created and the `rust` code was copied over into
 
 ### Release History
 
-#### Current Release (Dec-2025)
+#### Current Release (May-2026)
+
+This release includes changes to the CLI frontend and backend. Here is a summary of the changes.
+
+* The Cities database was changed to include support for multiple countries. The release includes 
+  both US and Canadian city databases.
+* The location metadata was updated to include country and region proprerties.
+* A new lightweight TUI library was added superseding the original Rust TUI library. The TUI now 
+  runs in a viewport instead of using the alternate screen.
+* The list cities CLI command was changed to reflect the country and region updates. A 
+  TUI option was added allowing interactive query of the database.
+* The add and modify location CLI command now have a TUI option allowing changes to be made 
+  interactively.
+* The filesystem backend history archives iterator was replaced with a new version.
+* A new admin <code>compress</code> command was added to reclaim disk space used by history 
+  archives.
+* The filesystem backend was changed to provide cleaner access to filesystem operations from the 
+  database.
+* The <code>LocationFilter</code> was updated to separate finding locations by city name or 
+  alias name. Finding locations by country or region names is also included.
+
+#### Dec-2025 Release
 
 This release has seen a lot of changes to the weather data backend. Here is a summary of the
 changes:

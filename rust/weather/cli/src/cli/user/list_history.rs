@@ -7,9 +7,9 @@
 //! The command allows locations_win to be filtered. The filtering is case-insensitive
 //! and will match either the start of the location name or alias.
 //!
-use super::trim_row_end;
+use super::{location_filters, trim_row_end};
 use crate::cli::{
-    self, err, get_writer, reports::list_history as reports, LocationFilterArgs, ReportArgs,
+    self, err, get_writer, reports::list_history as reports, ReportArgs,
 };
 use clap::{ArgMatches, Command};
 use weather_lib::prelude::WeatherData;
@@ -23,7 +23,7 @@ pub fn command() -> Command {
         .about("List weather history dates for locations.")
         .args(ReportArgs::get())
         .group(ReportArgs::arg_group())
-        .args(LocationFilterArgs::get())
+        .arg(location_filters::arg())
 }
 
 /// Executes the list history command.
@@ -34,7 +34,7 @@ pub fn command() -> Command {
 /// * `args` contains the report history command arguments.
 ///
 pub fn execute(weather_data: &WeatherData, args: ArgMatches) -> cli::Result<()> {
-    let filters = LocationFilterArgs::new(&args).as_location_filters();
+    let filters = location_filters::parse_args(&args)?;
     let histories = weather_data.get_history_dates(filters)?;
     match histories.is_empty() {
         true => Ok(()),
