@@ -41,29 +41,50 @@ The TUI is built using the `textual` framework. It has functionality to add and
 report historical weather data. The plan is to expand the TUI to help with bootstrapping
 the weather data storage and add graphing functionality.
 
-## Installation
-I have mostly been developing with Windows 11 so installation will be based on that
-platform. The `Python` code depends on the version to be at least 3.10. Both TUI and
-GUI rely on `setuptools` to create the respective executables.
+## Getting Started
+As with the other project I have been primarily developing on Windows 11 so installation 
+will be based on that platform. Installation of the TUI and GUI rely on `setuptools` to create 
+the respective executables.
 
-Run the following commands from the current directory.
+The `initialize.cmd` script will assemble and install the GUI and TUI into the virtual 
+environment. The following listing shows the steps taken to install them.
 
-### Windows 11
-```shell script
-py -3.13-64 -m venv .vevn
-.venv\Scripts\activate.bat
-(.venv): pip install maturin
-(.venv): pip install setuptools
-(.venv): pip install setuptools-scm
-(.venv): pip install importlib-resources
+```
+(.venv) C:>initialize.cmd
+
+(.venv) C:>call PyO3.cmd
+...
+
+(.venv) C:>pip install --editable py_gui
+...
+Successfully installed py_gui-1.0.0
+
+(.venv) C:>pip install textual
+...
+
+(.venv) C:>pip install textual-dev
+...
+
+(.venv) C:>pip install --editable py_tui
+...
+Successfully installed py_tui-1.0.0
 ```
 
 ### Create the `PyO3` Bindings
-From the `python` directory run the following commands.
 
-```shell script
-(.venv): cd ..\rust\weather\py_lib
-(.venv): maturin develop
+The [PyO3.cmd](./PyO3.cmd) script will create the [py_weather_lib](../rust/py_weather_lib/README.md) 
+bindings Python clients call to access the native Rust implementation. The following listings 
+shows the steps taken to create the bindings.
+
+```
+(.venv) C:>PyO3.cmd
+
+(.venv) C:>pushd C:..\rust\py_weather_lib
+
+(.venv) C:\Users\rncru\dev\weather\rust\py_weather_lib>maturin develop
+...
+
+(.venv) C:>popd
 ```
 
 ## Project Structure

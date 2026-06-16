@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "cli",
+    "weather_lib",
+    "py_weather_lib",
+#    "termui_lib",
+    "tui_lib",
+    "toolslib",
+]
+
+[workspace.dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+log = "0.4"
+rusqlite = { version = "0.40", features = ["bundled", "chrono"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+toml = { version = "1.0", features = ["preserve_order"] }
+crossterm = "0.29"
+ratatui = { version = "0.30", features = ["all-widgets", "serde"] }
+
+# member libraries
+toolslib = {path = "toolslib" }
+#termui_lib = {path = "termui_lib" }
+tui_lib = {path = "tui_lib" }
+weather_lib = {path = "weather_lib" }

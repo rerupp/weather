@@ -315,7 +315,7 @@ impl SheetRow<'_> {
     ///
     /// - `index` is the row column.
     ///
-    fn get(&self, index: usize) -> Option<CellData> {
+    fn get(&self, index: usize) -> Option<CellData<'_>> {
         match self.cells.get(index) {
             None => None,
             Some(cell) => {
